@@ -74,9 +74,18 @@ Please mark accurately. Avoid leniency, strictness, or central tendency. Score e
 }
 
 /** Create tables + seed admin on first API call if schema is missing. */
+async function runMigrations(pool: pg.Pool): Promise<void> {
+  await pool.query(
+    "ALTER TABLE teams ADD COLUMN IF NOT EXISTS late_penalty INT NOT NULL DEFAULT 0"
+  );
+}
+
 export function ensureSchema(pool: pg.Pool): Promise<void> {
   if (!initPromise) {
-    initPromise = runInit(pool).catch((err) => {
+    initPromise = (async () => {
+      await runInit(pool);
+      await runMigrations(pool);
+    })().catch((err) => {
       initPromise = null;
       throw err;
     });

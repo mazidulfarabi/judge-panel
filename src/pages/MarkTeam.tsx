@@ -4,7 +4,8 @@ import { api } from "../api";
 import AppShell from "../components/AppShell";
 import CriterionField from "../components/CriterionField";
 import DriveLink from "../components/DriveLink";
-import { CRITERIA, TOTAL_MAX } from "../criteria";
+import { CRITERIA, TOTAL_MAX, adjustedTotal, rawTotalFromScores } from "../criteria";
+import LatePenaltyBadge from "../components/LatePenaltyBadge";
 
 type TeamData = Record<string, string | number | boolean | null>;
 
@@ -32,9 +33,12 @@ export default function MarkTeam() {
       .catch((e) => setErr(e.message));
   }, [teamId]);
 
-  const total = useMemo(() => {
-    return CRITERIA.reduce((s, c) => s + (Number(form[c.key]) || 0), 0);
-  }, [form]);
+  const latePenalty = Number(team?.late_penalty) || 0;
+  const rawTotal = useMemo(() => rawTotalFromScores(form), [form]);
+  const finalTotal = useMemo(
+    () => adjustedTotal(rawTotal, latePenalty),
+    [rawTotal, latePenalty]
+  );
 
   function setField(key: string, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -86,10 +90,31 @@ export default function MarkTeam() {
     <AppShell
       backTo={{ label: "Dashboard", path: "/judge" }}
       title={String(team?.name || "Team")}
-      actions={<span className="total-pill">{total} / {TOTAL_MAX}</span>}
+      actions={
+        <span className="total-pill">
+          {latePenalty > 0 ? (
+            <>
+              {finalTotal}
+              <span style={{ opacity: 0.85, fontWeight: 500 }}> ({rawTotal}−{latePenalty})</span>
+            </>
+          ) : (
+            rawTotal
+          )}
+          {" "}/ {TOTAL_MAX}
+        </span>
+      }
     >
+      {latePenalty > 0 && (
+        <div className="alert alert-warn" style={{ marginBottom: "1rem" }}>
+          Late submission: <strong>−{latePenalty} points</strong> applied to final score.
+        </div>
+      )}
+
       <div className="card">
-        <h2>Team submission</h2>
+        <h2>
+          Team submission
+          <LatePenaltyBadge penalty={latePenalty} style={{ marginLeft: "0.5rem", verticalAlign: "middle" }} />
+        </h2>
         <p className="text-muted" style={{ marginTop: 0, fontSize: "0.9rem" }}>
           Review the slides in a new tab while marking.
         </p>

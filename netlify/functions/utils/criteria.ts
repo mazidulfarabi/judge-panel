@@ -16,8 +16,21 @@ export type CriterionKey = (typeof CRITERIA)[number]["key"];
 export const SCORE_COLUMNS = CRITERIA.map((c) => c.key);
 export const FEEDBACK_COLUMNS = CRITERIA.map((c) => `feedback_${c.key}`);
 
+export const SCORE_SUM_SQL = `(
+  COALESCE(s.situation_analysis,0)+COALESCE(s.problem_analysis,0)+
+  COALESCE(s.target_group_analysis,0)+COALESCE(s.branding_justification,0)+
+  COALESCE(s.big_idea,0)+COALESCE(s.marketing_strategy,0)+
+  COALESCE(s.feasibility,0)+COALESCE(s.financials_timeline,0)+
+  COALESCE(s.monitoring_evaluation,0)+COALESCE(s.idea_creativity,0)
+)`;
+
 export function totalFromRow(row: Record<string, number>): number {
   return CRITERIA.reduce((s, c) => s + (Number(row[c.key]) || 0), 0);
+}
+
+export function adjustedTotal(rawTotal: number, latePenalty: number): number {
+  const penalty = Math.max(0, Number(latePenalty) || 0);
+  return Math.max(0, rawTotal - penalty);
 }
 
 export function validateScores(body: Record<string, unknown>): string | null {

@@ -3,12 +3,15 @@ import { Link } from "react-router-dom";
 import { api, getSession } from "../api";
 import AppShell from "../components/AppShell";
 import DriveLink from "../components/DriveLink";
+import LatePenaltyBadge from "../components/LatePenaltyBadge";
 
 type Row = {
   id: string;
   name: string;
   pdf_drive_link: string;
+  late_penalty: number;
   judges_scored: number;
+  avg_raw: string | null;
   avg_total: string | null;
 };
 
@@ -29,8 +32,10 @@ export default function Leaderboard() {
     return teams.map((t) => {
       const avg =
         t.avg_total != null && Number(t.judges_scored) > 0 ? Number(t.avg_total) : null;
+      const avgRaw =
+        t.avg_raw != null && Number(t.judges_scored) > 0 ? Number(t.avg_raw) : null;
       if (avg != null) rank += 1;
-      return { ...t, avg, rank: avg != null ? rank : null };
+      return { ...t, avg, avgRaw, rank: avg != null ? rank : null };
     });
   }, [teams]);
 
@@ -54,11 +59,17 @@ export default function Leaderboard() {
               <div key={t.id} className="lb-card">
                 <span className="lb-rank">{t.rank ?? "—"}</span>
                 <div>
-                  <div className="lb-name">{t.name}</div>
+                  <div className="lb-name">
+                    {t.name}
+                    <LatePenaltyBadge penalty={t.late_penalty} style={{ marginLeft: "0.35rem" }} />
+                  </div>
                   <div className="lb-meta">
                     {Number(t.judges_scored) > 0
                       ? `${t.judges_scored} judge${Number(t.judges_scored) === 1 ? "" : "s"} scored`
                       : "No scores yet"}
+                    {t.avg != null && Number(t.late_penalty) > 0 && t.avgRaw != null && (
+                      <span> · raw avg {t.avgRaw.toFixed(1)}</span>
+                    )}
                   </div>
                 </div>
                 <div className="lb-score">

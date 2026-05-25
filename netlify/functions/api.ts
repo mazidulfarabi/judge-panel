@@ -13,7 +13,7 @@ import {
   CRITERIA,
   FEEDBACK_COLUMNS,
   SCORE_COLUMNS,
-  totalFromRow,
+  SCORE_SUM_SQL,
   validateScores,
 } from "./utils/criteria";
 import { buildTeamScorecardPdf } from "./utils/pdf-export";
@@ -112,17 +112,33 @@ async function requireAuth(
   return { ok: true, payload };
 }
 
-function parseCsvTeams(csv: string): { name: string; link: string }[] {
+function parseLatePenalty(value: string): number {
+  const n = parseInt(value.replace(/^"|"$/g, "").trim(), 10);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
+function parseCsvTeams(csv: string): { name: string; link: string; late_penalty: number }[] {
   const lines = csv.trim().split(/\r?\n/).filter(Boolean);
-  const teams: { name: string; link: string }[] = [];
+  const teams: { name: string; link: string; late_penalty: number }[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const parts = line.match(/("([^"]|"")*"|[^,]+)/g);
     if (!parts || parts.length < 2) continue;
     const name = parts[0].replace(/^"|"$/g, "").replace(/""/g, '"').trim();
     const link = parts[1].replace(/^"|"$/g, "").replace(/""/g, '"').trim();
-    if (i === 0 && /team|name/i.test(name) && /link|pdf|drive/i.test(link)) continue;
-    if (name && link) teams.push({ name, link });
+    const third = parts[2]?.replace(/^"|"$/g, "").replace(/""/g, '"').trim() || "0";
+    if (
+      i === 0 &&
+      /team|name/i.test(name) &&
+      /link|pdf|drive/i.test(link) &&
+      /late|penalty/i.test(third)
+    ) {
+      continue;
+    }
+    if (name && link) {
+      teams.push({ name, link, late_penalty: parseLatePenalty(third) });
+    }
   }
   return teams;
 }
@@ -185,18 +201,14 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       if (!auth.ok) return auth.response;
 
       const r = await pool.query(`
-        SELECT t.id, t.name, t.pdf_drive_link,
+        SELECT t.id, t.name, t.pdf_drive_link, t.late_penalty,
           COUNT(DISTINCT s.judge_id) FILTER (WHERE s.is_submitted) AS judges_scored,
-          ROUND(AVG(
-            COALESCE(s.situation_analysis,0)+COALESCE(s.problem_analysis,0)+
-            COALESCE(s.target_group_analysis,0)+COALESCE(s.branding_justification,0)+
-            COALESCE(s.big_idea,0)+COALESCE(s.marketing_strategy,0)+
-            COALESCE(s.feasibility,0)+COALESCE(s.financials_timeline,0)+
-            COALESCE(s.monitoring_evaluation,0)+COALESCE(s.idea_creativity,0)
-          ) FILTER (WHERE s.is_submitted), 2) AS avg_total
+          ROUND(AVG(${SCORE_SUM_SQL}) FILTER (WHERE s.is_submitted), 2) AS avg_raw,
+          ROUND(AVG(GREATEST(0, ${SCORE_SUM_SQL} - COALESCE(t.late_penalty, 0)))
+            FILTER (WHERE s.is_submitted), 2) AS avg_total
         FROM teams t
         LEFT JOIN scores s ON s.team_id = t.id
-        GROUP BY t.id, t.name, t.pdf_drive_link
+        GROUP BY t.id, t.name, t.pdf_drive_link, t.late_penalty
         ORDER BY avg_total DESC NULLS LAST, t.name
       `);
       return json(200, { teams: r.rows });
@@ -233,14 +245,11 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
 
       if (parts[1] === "teams" && method === "GET") {
         const r = await pool.query(
-          `SELECT t.id, t.name, t.pdf_drive_link,
+          `SELECT t.id, t.name, t.pdf_drive_link, t.late_penalty,
             COALESCE(s.is_submitted, false) AS is_submitted,
             CASE WHEN s.id IS NOT NULL THEN true ELSE false END AS has_draft,
-            (COALESCE(s.situation_analysis,0)+COALESCE(s.problem_analysis,0)+
-             COALESCE(s.target_group_analysis,0)+COALESCE(s.branding_justification,0)+
-             COALESCE(s.big_idea,0)+COALESCE(s.marketing_strategy,0)+
-             COALESCE(s.feasibility,0)+COALESCE(s.financials_timeline,0)+
-             COALESCE(s.monitoring_evaluation,0)+COALESCE(s.idea_creativity,0)) AS current_total
+            ${SCORE_SUM_SQL} AS raw_total,
+            GREATEST(0, ${SCORE_SUM_SQL} - COALESCE(t.late_penalty, 0)) AS current_total
            FROM assignments a
            JOIN teams t ON t.id = a.team_id
            LEFT JOIN scores s ON s.judge_id = a.judge_id AND s.team_id = t.id
@@ -364,13 +373,14 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
 
       if (parts[1] === "teams" && method === "GET") {
         const r = await pool.query(`
-          SELECT t.id, t.name, t.pdf_drive_link,
+          SELECT t.id, t.name, t.pdf_drive_link, t.late_penalty,
             COUNT(DISTINCT a.judge_id)::int AS judges_assigned,
             COUNT(DISTINCT s.judge_id) FILTER (WHERE s.is_submitted)::int AS judges_scored
           FROM teams t
           LEFT JOIN assignments a ON a.team_id = t.id
           LEFT JOIN scores s ON s.team_id = t.id AND s.is_submitted
-          GROUP BY t.id ORDER BY t.name
+          GROUP BY t.id, t.name, t.pdf_drive_link, t.late_penalty
+          ORDER BY t.name
         `);
         return json(200, { teams: r.rows });
       }
@@ -382,10 +392,12 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         let inserted = 0;
         for (const t of teams) {
           const res = await pool.query(
-            `INSERT INTO teams (name, pdf_drive_link) VALUES ($1, $2)
-             ON CONFLICT (name) DO UPDATE SET pdf_drive_link = EXCLUDED.pdf_drive_link
+            `INSERT INTO teams (name, pdf_drive_link, late_penalty) VALUES ($1, $2, $3)
+             ON CONFLICT (name) DO UPDATE SET
+               pdf_drive_link = EXCLUDED.pdf_drive_link,
+               late_penalty = EXCLUDED.late_penalty
              RETURNING id`,
-            [t.name, t.link]
+            [t.name, t.link, t.late_penalty]
           );
           if (res.rows[0]) inserted++;
         }
@@ -509,7 +521,9 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       }
 
       if (parts[1] === "export" && parts[2] === "scorecards" && method === "GET") {
-        const teams = await pool.query("SELECT id, name FROM teams ORDER BY name");
+        const teams = await pool.query(
+          "SELECT id, name, late_penalty FROM teams ORDER BY name"
+        );
         const zip = new JSZip();
 
         for (const team of teams.rows) {
@@ -524,6 +538,7 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
           if (!scores.rows.length) continue;
           const pdf = await buildTeamScorecardPdf(
             team.name,
+            Number(team.late_penalty) || 0,
             scores.rows.map((r) => ({
               judgeName: r.judge_name,
               row: r,

@@ -384,6 +384,11 @@ select {
   color: var(--accent);
 }
 
+.badge-late {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 /* Alerts */
 .alert {
   padding: 0.9rem 1rem;

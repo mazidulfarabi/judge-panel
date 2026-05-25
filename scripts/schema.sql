@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS teams (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name STRING NOT NULL UNIQUE,
   pdf_drive_link STRING NOT NULL,
+  late_penalty INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -28,6 +28,16 @@ export type CriterionKey = (typeof CRITERIA)[number]["key"];
 
 export const TOTAL_MAX = CRITERIA.reduce((s, c) => s + c.max, 0);
 
+export function rawTotalFromScores(scores: Record<string, string | number>): number {
+  return CRITERIA.reduce((s, c) => s + (Number(scores[c.key]) || 0), 0);
+}
+
+/** Final score after late submission penalty (points deducted). */
+export function adjustedTotal(rawTotal: number, latePenalty: number): number {
+  const penalty = Math.max(0, Number(latePenalty) || 0);
+  return Math.max(0, rawTotal - penalty);
+}
+
 export function buildDefaultInstructions(): string {
   const criteriaList = CRITERIA.map((c) => `• ${c.label} — ${c.max} pts`).join("\n");
   return `Please complete all your assigned teams by ${DEADLINE}.

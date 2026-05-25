@@ -6,6 +6,8 @@ export {
   buildDefaultInstructions,
   BRAND,
   DEADLINE,
+  rawTotalFromScores,
+  adjustedTotal,
   drivePreviewUrl,
   driveEmbedUrl,
   extractDriveFileId,

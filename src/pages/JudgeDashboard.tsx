@@ -3,14 +3,17 @@ import { Link } from "react-router-dom";
 import { api, getSession } from "../api";
 import AppShell from "../components/AppShell";
 import DriveLink from "../components/DriveLink";
+import LatePenaltyBadge from "../components/LatePenaltyBadge";
 import { CRITERIA, DEADLINE } from "../criteria";
 
 type Team = {
   id: string;
   name: string;
   pdf_drive_link: string;
+  late_penalty: number;
   is_submitted: boolean;
   has_draft: boolean;
+  raw_total: number;
   current_total: number;
 };
 
@@ -109,7 +112,10 @@ export default function JudgeDashboard() {
             {teams.map((t) => (
               <div key={t.id} className="team-card">
                 <div className="team-card-head">
-                  <span className="team-card-name">{t.name}</span>
+                  <span className="team-card-name">
+                    {t.name}
+                    <LatePenaltyBadge penalty={t.late_penalty} style={{ marginLeft: "0.35rem" }} />
+                  </span>
                   {t.is_submitted ? (
                     <span className="badge badge-done">Submitted</span>
                   ) : t.has_draft ? (
@@ -119,7 +125,18 @@ export default function JudgeDashboard() {
                   )}
                 </div>
                 <div className="text-muted" style={{ fontSize: "0.88rem" }}>
-                  {t.is_submitted || t.has_draft ? `Your score: ${t.current_total}/100` : "Not scored yet"}
+                  {t.is_submitted || t.has_draft ? (
+                    Number(t.late_penalty) > 0 ? (
+                      <>
+                        Final: <strong>{t.current_total}</strong>/100
+                        <span> (raw {t.raw_total}, −{t.late_penalty} late)</span>
+                      </>
+                    ) : (
+                      <>Your score: {t.current_total}/100</>
+                    )
+                  ) : (
+                    "Not scored yet"
+                  )}
                 </div>
                 <div className="team-card-actions">
                   <DriveLink href={t.pdf_drive_link} label="View slides" className="btn btn-outline btn-sm" />

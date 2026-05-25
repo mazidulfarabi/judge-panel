@@ -1,3 +1,3 @@
-team_name,pdf_drive_link
-Team Alpha,https://drive.google.com/file/d/example1/view
-Team Beta,https://drive.google.com/file/d/example2/view
+team_name,pdf_drive_link,late_penalty
+Team Alpha,https://drive.google.com/file/d/example1/view,0
+Team Beta,https://drive.google.com/file/d/example2/view,2

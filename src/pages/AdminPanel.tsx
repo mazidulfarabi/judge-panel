@@ -9,7 +9,14 @@ type DbStatus = {
   tables: { table_schema: string; table_name: string }[];
   counts: { judges: number; teams: number; admins: number };
 };
-type Team = { id: string; name: string; pdf_drive_link: string; judges_assigned: number; judges_scored: number };
+type Team = {
+  id: string;
+  name: string;
+  pdf_drive_link: string;
+  late_penalty: number;
+  judges_assigned: number;
+  judges_scored: number;
+};
 type Judge = {
   id: string;
   username: string;
@@ -212,13 +219,16 @@ export default function AdminPanel() {
       <div className="card">
         <h2>Import teams (CSV)</h2>
         <p className="text-muted" style={{ fontSize: "0.9rem" }}>
-          Format: <code>team_name,pdf_drive_link</code> — one team per line.
+          Format: <code>team_name,pdf_drive_link,late_penalty</code> — one team per line. Late penalty
+          is points deducted (0 if on time, or 1, 2, 3, …).
         </p>
         <textarea
           className="textarea"
           value={csv}
           onChange={(e) => setCsv(e.target.value)}
-          placeholder={"Team Alpha,https://drive.google.com/file/d/...\nTeam Beta,https://drive.google.com/..."}
+          placeholder={
+            "Team Alpha,https://drive.google.com/file/d/...,0\nTeam Beta,https://drive.google.com/file/d/...,2"
+          }
           style={{ minHeight: 120 }}
         />
         <button className="btn btn-primary" style={{ marginTop: "0.75rem" }} onClick={importTeams}>
@@ -356,6 +366,7 @@ export default function AdminPanel() {
             <thead>
               <tr>
                 <th>Team</th>
+                <th>Late penalty</th>
                 <th>Assigned</th>
                 <th>Scored</th>
               </tr>
@@ -364,6 +375,7 @@ export default function AdminPanel() {
               {teams.map((t) => (
                 <tr key={t.id}>
                   <td>{t.name}</td>
+                  <td>{Number(t.late_penalty) > 0 ? `−${t.late_penalty}` : "—"}</td>
                   <td>{t.judges_assigned}</td>
                   <td>{t.judges_scored}</td>
                 </tr>

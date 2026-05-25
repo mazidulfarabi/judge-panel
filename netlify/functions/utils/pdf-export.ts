@@ -1,10 +1,11 @@
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import { CRITERIA, totalFromRow } from "./criteria";
+import { CRITERIA, adjustedTotal, totalFromRow } from "./criteria";
 
 type ScoreRow = Record<string, string | number | boolean>;
 
 export async function buildTeamScorecardPdf(
   teamName: string,
+  latePenalty: number,
   judgeScores: { judgeName: string; row: ScoreRow }[]
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -18,6 +19,9 @@ export async function buildTeamScorecardPdf(
   };
 
   draw(`Scorecard: ${teamName}`, 16, bold);
+  if (latePenalty > 0) {
+    draw(`Late submission penalty: -${latePenalty} points`, 11, bold);
+  }
   y -= 8;
 
   for (const { judgeName, row } of judgeScores) {
@@ -26,8 +30,13 @@ export async function buildTeamScorecardPdf(
       y = 800;
     }
     draw(`Judge: ${judgeName}`, 12, bold);
-    const total = totalFromRow(row as Record<string, number>);
-    draw(`Total: ${total} / 100`);
+    const raw = totalFromRow(row as Record<string, number>);
+    const final = adjustedTotal(raw, latePenalty);
+    if (latePenalty > 0) {
+      draw(`Raw total: ${raw} / 100 · Final (after penalty): ${final} / 100`);
+    } else {
+      draw(`Total: ${raw} / 100`);
+    }
     for (const c of CRITERIA) {
       const score = row[c.key] ?? 0;
       const fb = String(row[`feedback_${c.key}`] || "").trim();
