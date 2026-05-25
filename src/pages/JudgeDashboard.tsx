@@ -4,6 +4,7 @@ import { api, getSession } from "../api";
 import AppShell from "../components/AppShell";
 import DriveLink from "../components/DriveLink";
 import LatePenaltyBadge from "../components/LatePenaltyBadge";
+import LoadingSpinner from "../components/LoadingSpinner";
 import { CRITERIA, DEADLINE } from "../criteria";
 
 type Team = {
@@ -31,8 +32,10 @@ export default function JudgeDashboard() {
   const [dash, setDash] = useState<Dashboard | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([
       api<Dashboard>("/judge/dashboard"),
       api<{ teams: Team[] }>("/judge/teams"),
@@ -41,7 +44,8 @@ export default function JudgeDashboard() {
         setDash(d);
         setTeams(t.teams);
       })
-      .catch((e) => setErr(e.message));
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   const pct = dash && dash.assigned > 0 ? Math.round((dash.completed / dash.assigned) * 100) : 0;
@@ -60,7 +64,9 @@ export default function JudgeDashboard() {
 
       {err && <div className="alert alert-error">{err}</div>}
 
-      {dash && (
+      {loading && <LoadingSpinner />}
+
+      {!loading && dash && (
         <>
           <div className="card">
             <h2>Your progress</h2>
@@ -103,6 +109,7 @@ export default function JudgeDashboard() {
         </>
       )}
 
+      {!loading && (
       <div className="card">
         <h2>Assigned teams</h2>
         {!teams.length && !err ? (
@@ -149,6 +156,7 @@ export default function JudgeDashboard() {
           </div>
         )}
       </div>
+      )}
     </AppShell>
   );
 }

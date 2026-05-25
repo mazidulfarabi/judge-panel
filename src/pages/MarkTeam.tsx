@@ -6,6 +6,7 @@ import CriterionField from "../components/CriterionField";
 import DriveLink from "../components/DriveLink";
 import { CRITERIA, TOTAL_MAX, adjustedTotal, rawTotalFromScores } from "../criteria";
 import LatePenaltyBadge from "../components/LatePenaltyBadge";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 type TeamData = Record<string, string | number | boolean | null>;
 
@@ -16,10 +17,13 @@ export default function MarkTeam() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!teamId) return;
+    setPageLoading(true);
+    setErr("");
     api<{ team: TeamData }>(`/judge/team/${teamId}`)
       .then(({ team: t }) => {
         setTeam(t);
@@ -30,7 +34,8 @@ export default function MarkTeam() {
         }
         setForm(f);
       })
-      .catch((e) => setErr(e.message));
+      .catch((e) => setErr(e.message))
+      .finally(() => setPageLoading(false));
   }, [teamId]);
 
   const latePenalty = Number(team?.late_penalty) || 0;
@@ -54,7 +59,7 @@ export default function MarkTeam() {
 
     setErr("");
     setMsg("");
-    setLoading(true);
+    setSaving(true);
     try {
       const body: Record<string, string | boolean> = { ...form, submit };
       for (const c of CRITERIA) {
@@ -69,7 +74,7 @@ export default function MarkTeam() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Save failed");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
@@ -78,10 +83,18 @@ export default function MarkTeam() {
     save(true);
   }
 
-  if (!team && !err) {
+  if (pageLoading) {
     return (
       <AppShell backTo={{ label: "Dashboard", path: "/judge" }}>
-        <p className="text-muted">Loading…</p>
+        <LoadingSpinner />
+      </AppShell>
+    );
+  }
+
+  if (!team && err) {
+    return (
+      <AppShell backTo={{ label: "Dashboard", path: "/judge" }}>
+        <div className="alert alert-error">{err}</div>
       </AppShell>
     );
   }
@@ -158,12 +171,12 @@ export default function MarkTeam() {
           <button
             type="button"
             className="btn btn-ghost btn-block"
-            disabled={loading}
+            disabled={saving}
             onClick={() => save(false)}
           >
             Save draft
           </button>
-          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
+          <button type="submit" className="btn btn-primary btn-block" disabled={saving}>
             Submit marks
           </button>
         </div>

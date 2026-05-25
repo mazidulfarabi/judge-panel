@@ -4,6 +4,7 @@ import { api, getSession } from "../api";
 import AppShell from "../components/AppShell";
 import DriveLink from "../components/DriveLink";
 import LatePenaltyBadge from "../components/LatePenaltyBadge";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 type Row = {
   id: string;
@@ -19,12 +20,15 @@ export default function Leaderboard() {
   const session = getSession();
   const [teams, setTeams] = useState<Row[]>([]);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
   const home = session.role === "admin" ? "/admin" : "/judge";
 
   useEffect(() => {
+    setLoading(true);
     api<{ teams: Row[] }>("/leaderboard")
       .then((d) => setTeams(d.teams))
-      .catch((e) => setErr(e.message));
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   const ranked = useMemo(() => {
@@ -51,7 +55,9 @@ export default function Leaderboard() {
       {err && <div className="alert alert-error">{err}</div>}
 
       <div className="card">
-        {!ranked.length && !err ? (
+        {loading ? (
+          <LoadingSpinner />
+        ) : !ranked.length && !err ? (
           <p className="text-muted">No teams yet.</p>
         ) : (
           <div className="lb-list">

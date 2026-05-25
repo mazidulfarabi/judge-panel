@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, downloadZip } from "../api";
 import AppShell from "../components/AppShell";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 type Stats = { teams: number; judges: number; assignments: number; submissions: number };
 type DbStatus = {
@@ -45,6 +46,7 @@ export default function AdminPanel() {
   const [csv, setCsv] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const [jUser, setJUser] = useState("");
   const [jPass, setJPass] = useState("");
@@ -73,7 +75,10 @@ export default function AdminPanel() {
   }
 
   useEffect(() => {
-    refresh().catch((e) => setErr(e.message));
+    setLoading(true);
+    refresh()
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   async function importTeams() {
@@ -410,7 +415,9 @@ export default function AdminPanel() {
         <p className="text-muted" style={{ fontSize: "0.9rem", marginTop: 0 }}>
           Remove an assignment (and its marks), or clear marks only so the judge can re-mark.
         </p>
-        {!assignments.length ? (
+        {loading ? (
+          <LoadingSpinner />
+        ) : !assignments.length ? (
           <p className="text-muted">No assignments yet.</p>
         ) : (
           <div className="table-wrap">
@@ -467,6 +474,11 @@ export default function AdminPanel() {
 
       <div className="card">
         <h2>Judges</h2>
+        {loading ? (
+          <LoadingSpinner />
+        ) : !judges.length ? (
+          <p className="text-muted">No judges yet.</p>
+        ) : (
         <div className="table-wrap">
           <table>
             <thead>
@@ -502,10 +514,16 @@ export default function AdminPanel() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       <div className="card">
         <h2>Teams</h2>
+        {loading ? (
+          <LoadingSpinner />
+        ) : !teams.length ? (
+          <p className="text-muted">No teams yet.</p>
+        ) : (
         <div className="table-wrap">
           <table>
             <thead>
@@ -528,6 +546,7 @@ export default function AdminPanel() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </AppShell>
   );
