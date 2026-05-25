@@ -487,25 +487,17 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         return json(200, { ok: true });
       }
 
-      if (parts[1] === "judges" && method === "POST") {
-        const { username, password, display_name, title } = JSON.parse(event.body || "{}");
-        if (!username || !password || !display_name) {
-          return json(400, { error: "username, password, display_name required" });
-        }
-        const hash = await hashPassword(password);
-        const r = await pool.query(
-          `INSERT INTO judges (username, password_hash, display_name, title)
-           VALUES ($1, $2, $3, $4) RETURNING id, username, display_name, title`,
-          [username, hash, display_name, title || ""]
-        );
-        return json(201, { judge: r.rows[0] });
-      }
-
       if (parts[1] === "judges" && parts[2] === "bulk" && method === "POST") {
         const { judges: list } = JSON.parse(event.body || "{}");
         if (!Array.isArray(list)) return json(400, { error: "judges array required" });
-        const created = [];
-        for (const j of list) {
+        const created: { id: string; username: string; display_name: string }[] = [];
+        for (let i = 0; i < list.length; i++) {
+          const j = list[i];
+          if (!j?.username || !j?.password || !j?.display_name) {
+            return json(400, {
+              error: `Line ${i + 1}: username, password, and display name are required`,
+            });
+          }
           const hash = await hashPassword(j.password);
           const r = await pool.query(
             `INSERT INTO judges (username, password_hash, display_name, title)
@@ -520,6 +512,20 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
           created.push(r.rows[0]);
         }
         return json(200, { created });
+      }
+
+      if (parts[1] === "judges" && !parts[2] && method === "POST") {
+        const { username, password, display_name, title } = JSON.parse(event.body || "{}");
+        if (!username || !password || !display_name) {
+          return json(400, { error: "username, password, display_name required" });
+        }
+        const hash = await hashPassword(password);
+        const r = await pool.query(
+          `INSERT INTO judges (username, password_hash, display_name, title)
+           VALUES ($1, $2, $3, $4) RETURNING id, username, display_name, title`,
+          [username, hash, display_name, title || ""]
+        );
+        return json(201, { judge: r.rows[0] });
       }
 
       if (parts[1] === "assign" && parts[2] === "random" && method === "POST") {

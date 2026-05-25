@@ -83,7 +83,9 @@ export default function JudgeDashboard() {
 
           <div className="alert alert-info">
             <p style={{ margin: "0 0 0.5rem" }}>
-              <span className="deadline">Please complete all your assigned teams by {DEADLINE}.</span>
+              <span className="deadline">
+                Please complete checking the solutions by {DEADLINE} (if not already).
+              </span>
             </p>
             {dash.instructions ? (
               <p style={{ margin: 0 }}>{dash.instructions}</p>

@@ -6,7 +6,7 @@ export const BRAND = {
   subtitle: "Judges Portal for R1",
 } as const;
 
-export const DEADLINE = "2nd June 2026";
+export const DEADLINE = "2 June";
 
 export const CASE_LINK =
   "https://drive.google.com/file/d/119MYxnOduI2LWv5N4gAowNnpPSr6xnjy/view?usp=sharing";
@@ -40,7 +40,7 @@ export function adjustedTotal(rawTotal: number, latePenalty: number): number {
 
 export function buildDefaultInstructions(): string {
   const criteriaList = CRITERIA.map((c) => `• ${c.label} — ${c.max} pts`).join("\n");
-  return `Please complete all your assigned teams by ${DEADLINE}.
+  return `Please complete checking the solutions by ${DEADLINE} (if not already).
 
 Marking criteria (${TOTAL_MAX} points total):
 ${criteriaList}

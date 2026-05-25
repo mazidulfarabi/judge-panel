@@ -166,6 +166,7 @@ export default function MarkTeam() {
 
         {err && <div className="alert alert-error">{err}</div>}
         {msg && <div className="alert alert-success">{msg}</div>}
+        {saving && <LoadingSpinner label="Saving your marks…" />}
 
         <div className="mark-actions">
           <button
@@ -174,10 +175,10 @@ export default function MarkTeam() {
             disabled={saving}
             onClick={() => save(false)}
           >
-            Save draft
+            {saving ? "Saving…" : "Save draft"}
           </button>
           <button type="submit" className="btn btn-primary btn-block" disabled={saving}>
-            Submit marks
+            {saving ? "Submitting…" : "Submit marks"}
           </button>
         </div>
       </form>

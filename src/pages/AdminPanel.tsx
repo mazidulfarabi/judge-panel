@@ -53,6 +53,7 @@ export default function AdminPanel() {
   const [jName, setJName] = useState("");
   const [jTitle, setJTitle] = useState("");
   const [bulkJudges, setBulkJudges] = useState("");
+  const [bulkJudgesLoading, setBulkJudgesLoading] = useState(false);
 
   const [selJudge, setSelJudge] = useState("");
   const [randCount, setRandCount] = useState(20);
@@ -120,12 +121,24 @@ export default function AdminPanel() {
     }
   }
 
+  function parseJudgeCsvLine(line: string) {
+    const parts = line.split(",").map((s) => s.trim());
+    if (parts.length < 3) return null;
+    const [username, password, display_name, ...rest] = parts;
+    return { username, password, display_name, title: rest.join(", ").trim() };
+  }
+
   async function bulkCreateJudges() {
+    setErr("");
+    setMsg("");
     const lines = bulkJudges.trim().split(/\n/).filter(Boolean);
-    const list = lines.map((line) => {
-      const [username, password, display_name, title] = line.split(",").map((s) => s.trim());
-      return { username, password, display_name, title: title || "" };
-    });
+    const list = lines.map(parseJudgeCsvLine);
+    const badLine = list.findIndex((j) => !j);
+    if (badLine >= 0) {
+      setErr(`Line ${badLine + 1}: use username,password,display name,title`);
+      return;
+    }
+    setBulkJudgesLoading(true);
     try {
       const r = await api<{ created: unknown[] }>("/admin/judges/bulk", {
         method: "POST",
@@ -135,6 +148,8 @@ export default function AdminPanel() {
       await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Bulk failed");
+    } finally {
+      setBulkJudgesLoading(false);
     }
   }
 
@@ -389,8 +404,14 @@ export default function AdminPanel() {
             onChange={(e) => setBulkJudges(e.target.value)}
             style={{ minHeight: 100 }}
           />
-          <button className="btn btn-primary btn-block" style={{ marginTop: "0.75rem" }} onClick={bulkCreateJudges}>
-            Bulk create
+          {bulkJudgesLoading && <LoadingSpinner label="Creating judges…" />}
+          <button
+            className="btn btn-primary btn-block"
+            style={{ marginTop: "0.75rem" }}
+            onClick={bulkCreateJudges}
+            disabled={bulkJudgesLoading}
+          >
+            {bulkJudgesLoading ? "Creating…" : "Bulk create"}
           </button>
         </div>
       </div>
