@@ -83,55 +83,31 @@ export default function AdminPanel() {
       .finally(() => setLoading(false));
   }, []);
 
-  function chunkTeamCsv(text: string, batchSize: number): string[] {
-    const lines = text.trim().split(/\r?\n/).filter(Boolean);
-    if (!lines.length) return [];
-    const first = lines[0];
-    const hasHeader =
-      /team|name/i.test(first) &&
-      /link|pdf|drive/i.test(first) &&
-      /late|penalty/i.test(lines[0].split(",")[2] || "");
-    const dataStart = hasHeader ? 1 : 0;
-    const chunks: string[] = [];
-    for (let i = dataStart; i < lines.length; i += batchSize) {
-      const batch = lines.slice(i, i + batchSize);
-      chunks.push(hasHeader ? [lines[0], ...batch].join("\n") : batch.join("\n"));
-    }
-    return chunks;
-  }
-
   async function importTeams() {
     setErr("");
     setMsg("");
-    const chunks = chunkTeamCsv(csv, 120);
-    if (!chunks.length) {
+    if (!csv.trim()) {
       setErr("Paste CSV data with at least one team per line.");
       return;
     }
-    let totalImported = 0;
-    let totalUpserted = 0;
     try {
-      await run("Importing teams…", async (setLabel) => {
-        for (let i = 0; i < chunks.length; i++) {
-          if (chunks.length > 1) {
-            setLabel(`Importing teams… batch ${i + 1} of ${chunks.length}`);
-          }
-          const r = await api<{ imported: number; upserted: number }>("/admin/teams/import", {
+      await run("Importing teams…", async () => {
+        const r = await api<{ imported: number; upserted: number; renamed?: number }>(
+          "/admin/teams/import",
+          {
             method: "POST",
-            body: JSON.stringify({ csv: chunks[i] }),
-          });
-          totalImported += r.imported;
-          totalUpserted += r.upserted;
-        }
-        setMsg(`Imported ${totalImported} teams (${totalUpserted} upserted).`);
+            body: JSON.stringify({ csv }),
+          }
+        );
+        const suffix =
+          r.renamed && r.renamed > 0
+            ? ` · ${r.renamed} duplicate name(s) saved as (2), (3), …`
+            : "";
+        setMsg(`Imported ${r.imported} teams (${r.upserted} upserted)${suffix}.`);
         await refresh();
       });
     } catch (e) {
-      setErr(
-        e instanceof Error
-          ? `${e.message} — ${totalImported} teams were saved before the failure. Retry with only the remaining rows.`
-          : "Import failed"
-      );
+      setErr(e instanceof Error ? e.message : "Import failed");
     }
   }
 
@@ -420,7 +396,8 @@ export default function AdminPanel() {
         <h2>Import teams (CSV)</h2>
         <p className="text-muted" style={{ fontSize: "0.9rem" }}>
           Format: <code>team_name,pdf_drive_link,late_penalty</code> — one team per line. Late penalty
-          is points deducted (0 if on time, or 1, 2, 3, …).
+          is points deducted (0 if on time, or 1, 2, 3, …). Repeated names in the same file are stored
+          as <code>Name (2)</code>, <code>Name (3)</code>, etc.
         </p>
         <textarea
           className="textarea"

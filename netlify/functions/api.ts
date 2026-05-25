@@ -23,6 +23,7 @@ import {
   extractDriveFileId,
   fetchDrivePublicFile,
 } from "./utils/drive";
+import { assignUniqueTeamNames } from "../../shared/team-import";
 
 const headers = {
   "Content-Type": "application/json",
@@ -412,14 +413,15 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       if (parts[1] === "teams" && parts[2] === "import" && method === "POST") {
         const { csv } = JSON.parse(event.body || "{}");
         if (!csv) return json(400, { error: "CSV required" });
-        const teams = parseCsvTeams(csv);
-        if (!teams.length) return json(400, { error: "No valid teams found in CSV" });
+        const parsed = parseCsvTeams(csv);
+        if (!parsed.length) return json(400, { error: "No valid teams found in CSV" });
+        const { teams, renamed } = assignUniqueTeamNames(parsed);
         let upserted = 0;
         for (let i = 0; i < teams.length; i += TEAM_IMPORT_BATCH) {
           const batch = teams.slice(i, i + TEAM_IMPORT_BATCH);
           upserted += await upsertTeamsBatch(pool, batch);
         }
-        return json(200, { imported: teams.length, upserted });
+        return json(200, { imported: teams.length, upserted, renamed });
       }
 
       if (parts[1] === "teams" && parts[2] === "all" && method === "DELETE") {
