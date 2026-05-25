@@ -417,6 +417,59 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         return json(200, { judges: r.rows });
       }
 
+      if (parts[1] === "assignments" && method === "GET") {
+        const r = await pool.query(`
+          SELECT a.id, a.judge_id, a.team_id,
+            j.display_name AS judge_name, t.name AS team_name,
+            CASE WHEN s.id IS NOT NULL THEN true ELSE false END AS has_score,
+            COALESCE(s.is_submitted, false) AS is_submitted
+          FROM assignments a
+          JOIN judges j ON j.id = a.judge_id
+          JOIN teams t ON t.id = a.team_id
+          LEFT JOIN scores s ON s.judge_id = a.judge_id AND s.team_id = a.team_id
+          ORDER BY j.display_name, t.name
+        `);
+        return json(200, { assignments: r.rows });
+      }
+
+      if (parts[1] === "assignments" && parts[2] && method === "DELETE") {
+        const assignmentId = parts[2];
+        const row = await pool.query(
+          "SELECT judge_id, team_id FROM assignments WHERE id = $1",
+          [assignmentId]
+        );
+        if (!row.rows[0]) return json(404, { error: "Assignment not found" });
+        const { judge_id, team_id } = row.rows[0];
+        await pool.query(
+          "DELETE FROM scores WHERE judge_id = $1 AND team_id = $2",
+          [judge_id, team_id]
+        );
+        const del = await pool.query("DELETE FROM assignments WHERE id = $1", [assignmentId]);
+        if (!del.rowCount) return json(404, { error: "Assignment not found" });
+        return json(200, { ok: true });
+      }
+
+      if (parts[1] === "scores" && method === "DELETE") {
+        const body = event.body ? JSON.parse(event.body) : {};
+        const judgeId = body.judge_id || event.queryStringParameters?.judge_id;
+        const teamId = body.team_id || event.queryStringParameters?.team_id;
+        if (!judgeId || !teamId) {
+          return json(400, { error: "judge_id and team_id required" });
+        }
+        const del = await pool.query(
+          "DELETE FROM scores WHERE judge_id = $1 AND team_id = $2",
+          [judgeId, teamId]
+        );
+        return json(200, { ok: true, deleted: del.rowCount });
+      }
+
+      if (parts[1] === "judges" && parts[2] && method === "DELETE") {
+        const judgeId = parts[2];
+        const del = await pool.query("DELETE FROM judges WHERE id = $1 RETURNING id", [judgeId]);
+        if (!del.rows[0]) return json(404, { error: "Judge not found" });
+        return json(200, { ok: true });
+      }
+
       if (parts[1] === "judges" && method === "POST") {
         const { username, password, display_name, title } = JSON.parse(event.body || "{}");
         if (!username || !password || !display_name) {

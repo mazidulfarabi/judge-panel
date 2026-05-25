@@ -26,11 +26,22 @@ type Judge = {
   completed: number;
 };
 
+type Assignment = {
+  id: string;
+  judge_id: string;
+  team_id: string;
+  judge_name: string;
+  team_name: string;
+  has_score: boolean;
+  is_submitted: boolean;
+};
+
 export default function AdminPanel() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [judges, setJudges] = useState<Judge[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [csv, setCsv] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -50,11 +61,13 @@ export default function AdminPanel() {
       api<Stats>("/admin/stats"),
       api<{ teams: Team[] }>("/admin/teams"),
       api<{ judges: Judge[] }>("/admin/judges"),
+      api<{ assignments: Assignment[] }>("/admin/assignments"),
       api<DbStatus>("/admin/db-status"),
-    ]).then(([s, t, j, db]) => {
+    ]).then(([s, t, j, a, db]) => {
       setStats(s);
       setTeams(t.teams);
       setJudges(j.judges);
+      setAssignments(a.assignments);
       setDbStatus(db);
     });
   }
@@ -167,6 +180,68 @@ export default function AdminPanel() {
       setMsg("Scorecards ZIP downloaded.");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Export failed");
+    }
+  }
+
+  async function deleteJudge(j: Judge) {
+    if (
+      !confirm(
+        `Delete judge "${j.display_name}"? This removes all their assignments and scores.`
+      )
+    ) {
+      return;
+    }
+    setErr("");
+    setMsg("");
+    try {
+      await api(`/admin/judges/${j.id}`, { method: "DELETE" });
+      setMsg(`Judge ${j.display_name} deleted.`);
+      if (selJudge === j.id) setSelJudge("");
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Delete failed");
+    }
+  }
+
+  async function deleteAssignment(a: Assignment) {
+    if (
+      !confirm(
+        `Remove assignment: ${a.judge_name} → ${a.team_name}? Their marks for this team will also be deleted.`
+      )
+    ) {
+      return;
+    }
+    setErr("");
+    setMsg("");
+    try {
+      await api(`/admin/assignments/${a.id}`, { method: "DELETE" });
+      setMsg(`Assignment removed (${a.judge_name} / ${a.team_name}).`);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Delete failed");
+    }
+  }
+
+  async function deleteScore(a: Assignment) {
+    if (!a.has_score) return;
+    if (
+      !confirm(
+        `Clear marks only for ${a.judge_name} on ${a.team_name}? The assignment stays — they can mark again.`
+      )
+    ) {
+      return;
+    }
+    setErr("");
+    setMsg("");
+    try {
+      await api("/admin/scores", {
+        method: "DELETE",
+        body: JSON.stringify({ judge_id: a.judge_id, team_id: a.team_id }),
+      });
+      setMsg(`Score cleared (${a.judge_name} / ${a.team_name}).`);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Delete failed");
     }
   }
 
@@ -331,6 +406,66 @@ export default function AdminPanel() {
       </div>
 
       <div className="card">
+        <h2>Assignments &amp; scores</h2>
+        <p className="text-muted" style={{ fontSize: "0.9rem", marginTop: 0 }}>
+          Remove an assignment (and its marks), or clear marks only so the judge can re-mark.
+        </p>
+        {!assignments.length ? (
+          <p className="text-muted">No assignments yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Judge</th>
+                  <th>Team</th>
+                  <th>Marks</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {assignments.map((a) => (
+                  <tr key={a.id}>
+                    <td>{a.judge_name}</td>
+                    <td>{a.team_name}</td>
+                    <td>
+                      {!a.has_score ? (
+                        <span className="text-muted">—</span>
+                      ) : a.is_submitted ? (
+                        <span className="badge badge-done">Submitted</span>
+                      ) : (
+                        <span className="badge badge-draft">Draft</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="table-actions">
+                        {a.has_score && (
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => deleteScore(a)}
+                          >
+                            Clear score
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => deleteAssignment(a)}
+                        >
+                          Remove assignment
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
         <h2>Judges</h2>
         <div className="table-wrap">
           <table>
@@ -340,6 +475,7 @@ export default function AdminPanel() {
                 <th>Username</th>
                 <th>Assigned</th>
                 <th>Done</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -352,6 +488,15 @@ export default function AdminPanel() {
                   <td>{j.username}</td>
                   <td>{j.assigned}</td>
                   <td>{j.completed}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-sm"
+                      onClick={() => deleteJudge(j)}
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
