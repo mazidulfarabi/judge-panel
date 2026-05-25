@@ -11,6 +11,9 @@
   node_bundler = "esbuild"
   included_files = ["netlify/functions/**"]
 
+[functions.api]
+  timeout = 26
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"

@@ -674,6 +674,29 @@ th {
   gap: 0.75rem;
 }
 
+.loading-banner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.loading-banner .loading-spinner {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.loading-banner .loading-label {
+  margin: 0;
+}
+
 .loading-spinner {
   width: 36px;
   height: 36px;

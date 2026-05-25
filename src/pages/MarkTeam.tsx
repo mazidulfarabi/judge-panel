@@ -166,7 +166,7 @@ export default function MarkTeam() {
 
         {err && <div className="alert alert-error">{err}</div>}
         {msg && <div className="alert alert-success">{msg}</div>}
-        {saving && <LoadingSpinner label="Saving your marks…" />}
+        {saving && <LoadingSpinner variant="banner" label="Saving your marks…" />}
 
         <div className="mark-actions">
           <button

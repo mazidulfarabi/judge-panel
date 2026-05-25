@@ -143,6 +143,30 @@ function parseCsvTeams(csv: string): { name: string; link: string; late_penalty:
   return teams;
 }
 
+const TEAM_IMPORT_BATCH = 100;
+
+async function upsertTeamsBatch(
+  pool: ReturnType<typeof getPool>,
+  teams: { name: string; link: string; late_penalty: number }[]
+): Promise<number> {
+  if (!teams.length) return 0;
+  const r = await pool.query(
+    `INSERT INTO teams (name, pdf_drive_link, late_penalty)
+     SELECT u.name, u.link, u.penalty
+     FROM UNNEST($1::text[], $2::text[], $3::int[]) AS u(name, link, penalty)
+     ON CONFLICT (name) DO UPDATE SET
+       pdf_drive_link = EXCLUDED.pdf_drive_link,
+       late_penalty = EXCLUDED.late_penalty
+     RETURNING id`,
+    [
+      teams.map((t) => t.name),
+      teams.map((t) => t.link),
+      teams.map((t) => t.late_penalty),
+    ]
+  );
+  return r.rowCount ?? 0;
+}
+
 const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 204, headers, body: "" };
@@ -389,19 +413,13 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         const { csv } = JSON.parse(event.body || "{}");
         if (!csv) return json(400, { error: "CSV required" });
         const teams = parseCsvTeams(csv);
-        let inserted = 0;
-        for (const t of teams) {
-          const res = await pool.query(
-            `INSERT INTO teams (name, pdf_drive_link, late_penalty) VALUES ($1, $2, $3)
-             ON CONFLICT (name) DO UPDATE SET
-               pdf_drive_link = EXCLUDED.pdf_drive_link,
-               late_penalty = EXCLUDED.late_penalty
-             RETURNING id`,
-            [t.name, t.link, t.late_penalty]
-          );
-          if (res.rows[0]) inserted++;
+        if (!teams.length) return json(400, { error: "No valid teams found in CSV" });
+        let upserted = 0;
+        for (let i = 0; i < teams.length; i += TEAM_IMPORT_BATCH) {
+          const batch = teams.slice(i, i + TEAM_IMPORT_BATCH);
+          upserted += await upsertTeamsBatch(pool, batch);
         }
-        return json(200, { imported: teams.length, upserted: inserted });
+        return json(200, { imported: teams.length, upserted });
       }
 
       if (parts[1] === "teams" && parts[2] === "all" && method === "DELETE") {

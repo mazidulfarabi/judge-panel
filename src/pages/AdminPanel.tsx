@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, downloadZip } from "../api";
 import AppShell from "../components/AppShell";
 import LoadingSpinner from "../components/LoadingSpinner";
+import { usePendingAction } from "../hooks/usePendingAction";
 
 type Stats = { teams: number; judges: number; assignments: number; submissions: number };
 type DbStatus = {
@@ -53,7 +54,7 @@ export default function AdminPanel() {
   const [jName, setJName] = useState("");
   const [jTitle, setJTitle] = useState("");
   const [bulkJudges, setBulkJudges] = useState("");
-  const [bulkJudgesLoading, setBulkJudgesLoading] = useState(false);
+  const { pending, run, isPending } = usePendingAction();
 
   const [selJudge, setSelJudge] = useState("");
   const [randCount, setRandCount] = useState(20);
@@ -82,18 +83,55 @@ export default function AdminPanel() {
       .finally(() => setLoading(false));
   }, []);
 
+  function chunkTeamCsv(text: string, batchSize: number): string[] {
+    const lines = text.trim().split(/\r?\n/).filter(Boolean);
+    if (!lines.length) return [];
+    const first = lines[0];
+    const hasHeader =
+      /team|name/i.test(first) &&
+      /link|pdf|drive/i.test(first) &&
+      /late|penalty/i.test(lines[0].split(",")[2] || "");
+    const dataStart = hasHeader ? 1 : 0;
+    const chunks: string[] = [];
+    for (let i = dataStart; i < lines.length; i += batchSize) {
+      const batch = lines.slice(i, i + batchSize);
+      chunks.push(hasHeader ? [lines[0], ...batch].join("\n") : batch.join("\n"));
+    }
+    return chunks;
+  }
+
   async function importTeams() {
     setErr("");
     setMsg("");
+    const chunks = chunkTeamCsv(csv, 120);
+    if (!chunks.length) {
+      setErr("Paste CSV data with at least one team per line.");
+      return;
+    }
+    let totalImported = 0;
+    let totalUpserted = 0;
     try {
-      const r = await api<{ imported: number }>("/admin/teams/import", {
-        method: "POST",
-        body: JSON.stringify({ csv }),
+      await run("Importing teams…", async (setLabel) => {
+        for (let i = 0; i < chunks.length; i++) {
+          if (chunks.length > 1) {
+            setLabel(`Importing teams… batch ${i + 1} of ${chunks.length}`);
+          }
+          const r = await api<{ imported: number; upserted: number }>("/admin/teams/import", {
+            method: "POST",
+            body: JSON.stringify({ csv: chunks[i] }),
+          });
+          totalImported += r.imported;
+          totalUpserted += r.upserted;
+        }
+        setMsg(`Imported ${totalImported} teams (${totalUpserted} upserted).`);
+        await refresh();
       });
-      setMsg(`Imported ${r.imported} teams from CSV.`);
-      await refresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Import failed");
+      setErr(
+        e instanceof Error
+          ? `${e.message} — ${totalImported} teams were saved before the failure. Retry with only the remaining rows.`
+          : "Import failed"
+      );
     }
   }
 
@@ -101,21 +139,23 @@ export default function AdminPanel() {
     setErr("");
     setMsg("");
     try {
-      await api("/admin/judges", {
-        method: "POST",
-        body: JSON.stringify({
-          username: jUser,
-          password: jPass,
-          display_name: jName,
-          title: jTitle,
-        }),
+      await run("Creating judge…", async () => {
+        await api("/admin/judges", {
+          method: "POST",
+          body: JSON.stringify({
+            username: jUser,
+            password: jPass,
+            display_name: jName,
+            title: jTitle,
+          }),
+        });
+        setMsg(`Judge ${jName} created.`);
+        setJUser("");
+        setJPass("");
+        setJName("");
+        setJTitle("");
+        await refresh();
       });
-      setMsg(`Judge ${jName} created.`);
-      setJUser("");
-      setJPass("");
-      setJName("");
-      setJTitle("");
-      await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to create judge");
     }
@@ -138,30 +178,33 @@ export default function AdminPanel() {
       setErr(`Line ${badLine + 1}: use username,password,display name,title`);
       return;
     }
-    setBulkJudgesLoading(true);
     try {
-      const r = await api<{ created: unknown[] }>("/admin/judges/bulk", {
-        method: "POST",
-        body: JSON.stringify({ judges: list }),
+      await run("Creating judges…", async () => {
+        const r = await api<{ created: unknown[] }>("/admin/judges/bulk", {
+          method: "POST",
+          body: JSON.stringify({ judges: list }),
+        });
+        setMsg(`Upserted ${r.created.length} judges.`);
+        await refresh();
       });
-      setMsg(`Upserted ${r.created.length} judges.`);
-      await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Bulk failed");
-    } finally {
-      setBulkJudgesLoading(false);
     }
   }
 
   async function randomAssign() {
     if (!selJudge) return setErr("Select a judge");
+    setErr("");
+    setMsg("");
     try {
-      const r = await api<{ assigned: number }>("/admin/assign/random", {
-        method: "POST",
-        body: JSON.stringify({ judge_id: selJudge, count: randCount }),
+      await run("Assigning teams…", async () => {
+        const r = await api<{ assigned: number }>("/admin/assign/random", {
+          method: "POST",
+          body: JSON.stringify({ judge_id: selJudge, count: randCount }),
+        });
+        setMsg(`Randomly assigned ${r.assigned} teams.`);
+        await refresh();
       });
-      setMsg(`Randomly assigned ${r.assigned} teams.`);
-      await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Assign failed");
     }
@@ -169,35 +212,47 @@ export default function AdminPanel() {
 
   async function bulkAssignAll() {
     if (!selJudge) return setErr("Select a judge");
+    setErr("");
+    setMsg("");
     try {
-      const r = await api<{ assigned: number }>("/admin/assign/bulk", {
-        method: "POST",
-        body: JSON.stringify({ judge_id: selJudge, team_ids: teams.map((t) => t.id) }),
+      await run("Assigning all teams…", async () => {
+        const r = await api<{ assigned: number }>("/admin/assign/bulk", {
+          method: "POST",
+          body: JSON.stringify({ judge_id: selJudge, team_ids: teams.map((t) => t.id) }),
+        });
+        setMsg(`Bulk assigned ${r.assigned} teams to judge.`);
+        await refresh();
       });
-      setMsg(`Bulk assigned ${r.assigned} teams to judge.`);
-      await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Bulk assign failed");
     }
   }
 
   async function autoDistribute() {
+    setErr("");
+    setMsg("");
     try {
-      const r = await api<{ assigned: number }>("/admin/assign/auto-distribute", {
-        method: "POST",
-        body: JSON.stringify({ per_judge: perJudge }),
+      await run("Distributing assignments…", async () => {
+        const r = await api<{ assigned: number }>("/admin/assign/auto-distribute", {
+          method: "POST",
+          body: JSON.stringify({ per_judge: perJudge }),
+        });
+        setMsg(`Auto-distributed ${r.assigned} assignments (${perJudge} per judge target).`);
+        await refresh();
       });
-      setMsg(`Auto-distributed ${r.assigned} assignments (${perJudge} per judge target).`);
-      await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Distribute failed");
     }
   }
 
   async function exportZip() {
+    setErr("");
+    setMsg("");
     try {
-      await downloadZip("/admin/export/scorecards", "scorecards.zip");
-      setMsg("Scorecards ZIP downloaded.");
+      await run("Preparing scorecards…", async () => {
+        await downloadZip("/admin/export/scorecards", "scorecards.zip");
+        setMsg("Scorecards ZIP downloaded.");
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Export failed");
     }
@@ -214,9 +269,11 @@ export default function AdminPanel() {
     setErr("");
     setMsg("");
     try {
-      await api(`/admin/teams/${t.id}`, { method: "DELETE" });
-      setMsg(`Team "${t.name}" deleted.`);
-      await refresh();
+      await run("Deleting team…", async () => {
+        await api(`/admin/teams/${t.id}`, { method: "DELETE" });
+        setMsg(`Team "${t.name}" deleted.`);
+        await refresh();
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Delete failed");
     }
@@ -234,9 +291,11 @@ export default function AdminPanel() {
     setErr("");
     setMsg("");
     try {
-      const r = await api<{ deleted: number }>("/admin/teams/all", { method: "DELETE" });
-      setMsg(`Deleted ${r.deleted} team(s).`);
-      await refresh();
+      await run("Deleting all teams…", async () => {
+        const r = await api<{ deleted: number }>("/admin/teams/all", { method: "DELETE" });
+        setMsg(`Deleted ${r.deleted} team(s).`);
+        await refresh();
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Delete failed");
     }
@@ -253,10 +312,12 @@ export default function AdminPanel() {
     setErr("");
     setMsg("");
     try {
-      await api(`/admin/judges/${j.id}`, { method: "DELETE" });
-      setMsg(`Judge ${j.display_name} deleted.`);
-      if (selJudge === j.id) setSelJudge("");
-      await refresh();
+      await run("Deleting judge…", async () => {
+        await api(`/admin/judges/${j.id}`, { method: "DELETE" });
+        setMsg(`Judge ${j.display_name} deleted.`);
+        if (selJudge === j.id) setSelJudge("");
+        await refresh();
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Delete failed");
     }
@@ -273,9 +334,11 @@ export default function AdminPanel() {
     setErr("");
     setMsg("");
     try {
-      await api(`/admin/assignments/${a.id}`, { method: "DELETE" });
-      setMsg(`Assignment removed (${a.judge_name} / ${a.team_name}).`);
-      await refresh();
+      await run("Removing assignment…", async () => {
+        await api(`/admin/assignments/${a.id}`, { method: "DELETE" });
+        setMsg(`Assignment removed (${a.judge_name} / ${a.team_name}).`);
+        await refresh();
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Delete failed");
     }
@@ -293,12 +356,14 @@ export default function AdminPanel() {
     setErr("");
     setMsg("");
     try {
-      await api("/admin/scores", {
-        method: "DELETE",
-        body: JSON.stringify({ judge_id: a.judge_id, team_id: a.team_id }),
+      await run("Clearing score…", async () => {
+        await api("/admin/scores", {
+          method: "DELETE",
+          body: JSON.stringify({ judge_id: a.judge_id, team_id: a.team_id }),
+        });
+        setMsg(`Score cleared (${a.judge_name} / ${a.team_name}).`);
+        await refresh();
       });
-      setMsg(`Score cleared (${a.judge_name} / ${a.team_name}).`);
-      await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Delete failed");
     }
@@ -349,6 +414,7 @@ export default function AdminPanel() {
 
       {msg && <div className="alert alert-success">{msg}</div>}
       {err && <div className="alert alert-error">{err}</div>}
+      {pending && <LoadingSpinner variant="banner" label={pending} />}
 
       <div className="card">
         <h2>Import teams (CSV)</h2>
@@ -365,7 +431,12 @@ export default function AdminPanel() {
           }
           style={{ minHeight: 120 }}
         />
-        <button className="btn btn-primary" style={{ marginTop: "0.75rem" }} onClick={importTeams}>
+        <button
+          className="btn btn-primary"
+          style={{ marginTop: "0.75rem" }}
+          onClick={importTeams}
+          disabled={isPending}
+        >
           Import CSV
         </button>
       </div>
@@ -389,7 +460,7 @@ export default function AdminPanel() {
             <label className="label">Title</label>
             <input className="input" value={jTitle} onChange={(e) => setJTitle(e.target.value)} />
           </div>
-          <button className="btn btn-primary btn-block" onClick={createJudge}>
+          <button className="btn btn-primary btn-block" onClick={createJudge} disabled={isPending}>
             Create judge
           </button>
         </div>
@@ -404,14 +475,13 @@ export default function AdminPanel() {
             onChange={(e) => setBulkJudges(e.target.value)}
             style={{ minHeight: 100 }}
           />
-          {bulkJudgesLoading && <LoadingSpinner label="Creating judges…" />}
           <button
             className="btn btn-primary btn-block"
             style={{ marginTop: "0.75rem" }}
             onClick={bulkCreateJudges}
-            disabled={bulkJudgesLoading}
+            disabled={isPending}
           >
-            {bulkJudgesLoading ? "Creating…" : "Bulk create"}
+            Bulk create
           </button>
         </div>
       </div>
@@ -439,10 +509,10 @@ export default function AdminPanel() {
               onChange={(e) => setRandCount(Number(e.target.value))}
             />
           </div>
-          <button className="btn btn-primary" onClick={randomAssign}>
+          <button className="btn btn-primary" onClick={randomAssign} disabled={isPending}>
             Random assign
           </button>
-          <button className="btn btn-outline" onClick={bulkAssignAll}>
+          <button className="btn btn-outline" onClick={bulkAssignAll} disabled={isPending}>
             Assign all teams
           </button>
         </div>
@@ -456,7 +526,7 @@ export default function AdminPanel() {
               onChange={(e) => setPerJudge(Number(e.target.value))}
             />
           </div>
-          <button className="btn btn-primary" onClick={autoDistribute}>
+          <button className="btn btn-primary" onClick={autoDistribute} disabled={isPending}>
             Auto-distribute
           </button>
         </div>
@@ -465,7 +535,7 @@ export default function AdminPanel() {
       <div className="card">
         <h2>Export scorecards</h2>
         <p className="text-muted">ZIP of PDF scorecards per team (submitted marks only).</p>
-        <button className="btn btn-primary" onClick={exportZip}>
+        <button className="btn btn-primary" onClick={exportZip} disabled={isPending}>
           Download ZIP
         </button>
       </div>
@@ -511,6 +581,7 @@ export default function AdminPanel() {
                             type="button"
                             className="btn btn-danger btn-sm"
                             onClick={() => deleteScore(a)}
+                            disabled={isPending}
                           >
                             Clear score
                           </button>
@@ -519,6 +590,7 @@ export default function AdminPanel() {
                           type="button"
                           className="btn btn-danger btn-sm"
                           onClick={() => deleteAssignment(a)}
+                          disabled={isPending}
                         >
                           Remove assignment
                         </button>
@@ -565,6 +637,7 @@ export default function AdminPanel() {
                       type="button"
                       className="btn btn-danger btn-sm"
                       onClick={() => deleteJudge(j)}
+                      disabled={isPending}
                     >
                       Delete
                     </button>
@@ -581,7 +654,7 @@ export default function AdminPanel() {
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.75rem" }}>
           <h2 style={{ margin: 0 }}>Teams</h2>
           {!loading && teams.length > 0 && (
-            <button type="button" className="btn btn-danger btn-sm" onClick={deleteAllTeams}>
+            <button type="button" className="btn btn-danger btn-sm" onClick={deleteAllTeams} disabled={isPending}>
               Delete all teams
             </button>
           )}
@@ -614,6 +687,7 @@ export default function AdminPanel() {
                       type="button"
                       className="btn btn-danger btn-sm"
                       onClick={() => deleteTeam(t)}
+                      disabled={isPending}
                     >
                       Delete
                     </button>

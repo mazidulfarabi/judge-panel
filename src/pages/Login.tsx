@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, saveSession } from "../api";
+import LoadingSpinner from "../components/LoadingSpinner";
 import { BRAND } from "../brand";
 
 export default function Login() {
@@ -72,8 +73,9 @@ export default function Login() {
             />
           </div>
           {error && <div className="alert alert-error">{error}</div>}
+          {loading && <LoadingSpinner variant="banner" label="Signing in…" />}
           <button className="btn btn-primary btn-block" type="submit" disabled={loading}>
-            {loading ? "Signing in…" : "Sign in"}
+            Sign in
           </button>
         </form>
       </div>
