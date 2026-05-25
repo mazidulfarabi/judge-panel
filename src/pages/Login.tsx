@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { api, saveSession } from "../api";
+import { BRAND } from "../brand";
 
 export default function Login() {
   const nav = useNavigate();
@@ -33,20 +34,23 @@ export default function Login() {
 
   return (
     <div className="login-page">
+      <div className="login-brand">
+        <span className="brand-event">{BRAND.event}</span>
+        <span className="brand-org">{BRAND.org}</span>
+        <span className="brand-portal">{BRAND.portal}</span>
+      </div>
+
       <div className="login-card card">
-        <h1 style={{ marginTop: 0 }}>Judging Portal</h1>
-        <p style={{ color: "var(--muted)", marginBottom: "1.5rem" }}>
-          Case competition — judges &amp; admin access
-        </p>
+        <h2 style={{ marginTop: 0, textAlign: "center" }}>Sign in</h2>
         <form onSubmit={onSubmit}>
-          <div style={{ marginBottom: "1rem" }}>
+          <div className="field">
             <label className="label">Role</label>
             <select value={role} onChange={(e) => setRole(e.target.value as "judge" | "admin")}>
               <option value="judge">Judge</option>
               <option value="admin">Admin</option>
             </select>
           </div>
-          <div style={{ marginBottom: "1rem" }}>
+          <div className="field">
             <label className="label">Username</label>
             <input
               className="input"
@@ -56,7 +60,7 @@ export default function Login() {
               required
             />
           </div>
-          <div style={{ marginBottom: "1.25rem" }}>
+          <div className="field">
             <label className="label">Password</label>
             <input
               className="input"
@@ -67,16 +71,11 @@ export default function Login() {
               required
             />
           </div>
-          {error && (
-            <p style={{ color: "var(--danger)", fontSize: "0.9rem" }}>{error}</p>
-          )}
-          <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: "100%" }}>
+          {error && <div className="alert alert-error">{error}</div>}
+          <button className="btn btn-primary btn-block" type="submit" disabled={loading}>
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p style={{ marginTop: "1.25rem", fontSize: "0.85rem", color: "var(--muted)" }}>
-          <Link to="/leaderboard">View public leaderboard</Link>
-        </p>
       </div>
     </div>
   );

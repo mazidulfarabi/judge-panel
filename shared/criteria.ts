@@ -1,7 +1,15 @@
+export const BRAND = {
+  event: "Breaking Brand 2026",
+  org: "IBA-JU Business Club",
+  portal: "Judges Portal for R1",
+  full: "Breaking Brand 2026 by IBA-JU Business Club",
+  subtitle: "Judges Portal for R1",
+} as const;
+
+export const DEADLINE = "2nd June 2026";
+
 export const CASE_LINK =
   "https://drive.google.com/file/d/119MYxnOduI2LWv5N4gAowNnpPSr6xnjy/view?usp=sharing";
-
-export const MARKING_INSTRUCTIONS = `Please do accurate marking. Try to avoid leniency, strictness, or central tendency (all teams getting similar marks). Score each criterion independently based on the rubric.`;
 
 export const CRITERIA = [
   { key: "situation_analysis", label: "Situation Analysis", max: 10 },
@@ -19,6 +27,18 @@ export const CRITERIA = [
 export type CriterionKey = (typeof CRITERIA)[number]["key"];
 
 export const TOTAL_MAX = CRITERIA.reduce((s, c) => s + c.max, 0);
+
+export function buildDefaultInstructions(): string {
+  const criteriaList = CRITERIA.map((c) => `• ${c.label} — ${c.max} pts`).join("\n");
+  return `Please complete all your assigned teams by ${DEADLINE}.
+
+Marking criteria (${TOTAL_MAX} points total):
+${criteriaList}
+
+Please mark accurately. Avoid leniency, strictness, or central tendency (similar marks for every team). Score each criterion independently.`;
+}
+
+export const MARKING_INSTRUCTIONS = buildDefaultInstructions();
 
 /** Extract Google Drive file ID from common link formats. */
 export function extractDriveFileId(link: string): string | null {
@@ -38,7 +58,6 @@ export function extractDriveFileId(link: string): string | null {
   return null;
 }
 
-/** Google embed URL (fallback when proxy cannot stream the file). */
 export function driveEmbedUrl(link: string): string {
   const id = extractDriveFileId(link);
   if (!id) return link;
@@ -48,7 +67,6 @@ export function driveEmbedUrl(link: string): string {
   return `https://drive.google.com/file/d/${id}/preview`;
 }
 
-/** @deprecated Use DocumentViewer + API proxy instead. */
 export function drivePreviewUrl(link: string): string {
   return driveEmbedUrl(link);
 }

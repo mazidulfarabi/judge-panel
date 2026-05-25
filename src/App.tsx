@@ -13,6 +13,12 @@ function RequireRole({ role, children }: { role: "admin" | "judge"; children: Re
   return <>{children}</>;
 }
 
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const s = getSession();
+  if (!s.token) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -33,7 +39,14 @@ export default function App() {
           </RequireRole>
         }
       />
-      <Route path="/leaderboard" element={<Leaderboard />} />
+      <Route
+        path="/leaderboard"
+        element={
+          <RequireAuth>
+            <Leaderboard />
+          </RequireAuth>
+        }
+      />
       <Route
         path="/admin"
         element={

@@ -1,8 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import AppShell from "../components/AppShell";
+import CriterionField from "../components/CriterionField";
+import DriveLink from "../components/DriveLink";
 import { CRITERIA, TOTAL_MAX } from "../criteria";
-import DocumentViewer from "../components/DocumentViewer";
 
 type TeamData = Record<string, string | number | boolean | null>;
 
@@ -22,7 +24,7 @@ export default function MarkTeam() {
         setTeam(t);
         const f: Record<string, string> = { team_feedback: String(t.team_feedback || "") };
         for (const c of CRITERIA) {
-          f[c.key] = String(t[c.key] ?? "");
+          f[c.key] = String(t[c.key] ?? "0");
           f[`feedback_${c.key}`] = String(t[`feedback_${c.key}`] || "");
         }
         setForm(f);
@@ -40,13 +42,19 @@ export default function MarkTeam() {
 
   async function save(submit: boolean) {
     if (!teamId) return;
+
+    if (submit && !String(form.team_feedback || "").trim()) {
+      setErr("Overall team feedback is required when submitting marks.");
+      return;
+    }
+
     setErr("");
     setMsg("");
     setLoading(true);
     try {
       const body: Record<string, string | boolean> = { ...form, submit };
       for (const c of CRITERIA) {
-        body[c.key] = form[c.key] || "0";
+        body[c.key] = form[c.key] ?? "0";
       }
       await api("/judge/team/" + teamId, {
         method: "POST",
@@ -66,93 +74,75 @@ export default function MarkTeam() {
     save(true);
   }
 
-  if (!team && !err) return <div className="layout">Loading…</div>;
+  if (!team && !err) {
+    return (
+      <AppShell backTo={{ label: "Dashboard", path: "/judge" }}>
+        <p className="text-muted">Loading…</p>
+      </AppShell>
+    );
+  }
 
   return (
-    <div className="layout">
-      <nav className="nav-bar">
-        <Link className="btn btn-ghost" to="/judge">
-          ← Back to teams
-        </Link>
-        <span style={{ fontWeight: 600 }}>
-          Total: {total} / {TOTAL_MAX}
-        </span>
-      </nav>
-
-      <h1>{String(team?.name || "Team")}</h1>
-
-      <div className="card doc-card" style={{ marginBottom: "1.25rem" }}>
-        <h2 style={{ marginTop: 0 }}>Team submission</h2>
-        {teamId && (
-          <DocumentViewer
-            apiPath={`/judge/team/${teamId}/document`}
-            driveLink={String(team?.pdf_drive_link || "")}
-            title="Team submission"
-          />
-        )}
+    <AppShell
+      backTo={{ label: "Dashboard", path: "/judge" }}
+      title={String(team?.name || "Team")}
+      actions={<span className="total-pill">{total} / {TOTAL_MAX}</span>}
+    >
+      <div className="card">
+        <h2>Team submission</h2>
+        <p className="text-muted" style={{ marginTop: 0, fontSize: "0.9rem" }}>
+          Review the slides in a new tab while marking.
+        </p>
+        <DriveLink href={String(team?.pdf_drive_link || "")} label="Open slides in new tab" className="btn btn-primary btn-block" />
       </div>
 
       <form onSubmit={onSubmit}>
         <div className="card">
-          <h2 style={{ marginTop: 0 }}>Marking criteria</h2>
+          <h2>Marking criteria</h2>
           {CRITERIA.map((c) => (
-            <div key={c.key} className="criterion-row">
-              <div>
-                <label className="label">
-                  {c.label} (0–{c.max})
-                </label>
-                <input
-                  className="input score-input"
-                  type="number"
-                  min={0}
-                  max={c.max}
-                  value={form[c.key] ?? ""}
-                  onChange={(e) => setField(c.key, e.target.value)}
-                  required
-                />
-                <label className="label" style={{ marginTop: "0.5rem" }}>
-                  Feedback for {c.label} (optional)
-                </label>
-                <textarea
-                  className="textarea"
-                  value={form[`feedback_${c.key}`] ?? ""}
-                  onChange={(e) => setField(`feedback_${c.key}`, e.target.value)}
-                  placeholder="Optional criterion-specific feedback"
-                />
-              </div>
-            </div>
+            <CriterionField
+              key={c.key}
+              label={c.label}
+              max={c.max}
+              score={Number(form[c.key]) || 0}
+              feedback={form[`feedback_${c.key}`] ?? ""}
+              onScore={(n) => setField(c.key, String(n))}
+              onFeedback={(text) => setField(`feedback_${c.key}`, text)}
+            />
           ))}
 
-          <div style={{ marginTop: "1rem" }}>
-            <label className="label">Overall team feedback (required)</label>
+          <div className="field" style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
+            <label className="label">Overall team feedback</label>
+            <p className="text-muted" style={{ fontSize: "0.85rem", margin: "0 0 0.5rem" }}>
+              Optional for drafts · required when you submit
+            </p>
             <textarea
               className="textarea"
               value={form.team_feedback ?? ""}
               onChange={(e) => setField("team_feedback", e.target.value)}
-              required
-              placeholder="Mandatory feedback for this team"
-              style={{ minHeight: 120 }}
+              placeholder="Summary feedback for this team"
+              rows={4}
             />
           </div>
         </div>
 
-        {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
-        {msg && <p style={{ color: "var(--success)" }}>{msg}</p>}
+        {err && <div className="alert alert-error">{err}</div>}
+        {msg && <div className="alert alert-success">{msg}</div>}
 
-        <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem", flexWrap: "wrap" }}>
+        <div className="mark-actions">
           <button
             type="button"
-            className="btn btn-ghost"
+            className="btn btn-ghost btn-block"
             disabled={loading}
             onClick={() => save(false)}
           >
             Save draft
           </button>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
+          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
             Submit marks
           </button>
         </div>
       </form>
-    </div>
+    </AppShell>
   );
 }

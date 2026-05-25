@@ -40,7 +40,21 @@ try {
     "https://drive.google.com/file/d/119MYxnOduI2LWv5N4gAowNnpPSr6xnjy/view?usp=sharing";
   const instructions =
     process.env.MARKING_INSTRUCTIONS ||
-    "Please do accurate marking. Try to avoid leniency, strictness, or central tendency (all teams getting similar marks).";
+    `Please complete all your assigned teams by 2nd June 2026.
+
+Marking criteria (100 points total):
+• Situation Analysis — 10 pts
+• Problem Analysis — 10 pts
+• Target Group Analysis — 5 pts
+• Branding Justification — 10 pts
+• Big Idea — 15 pts
+• Marketing Strategy — 15 pts
+• Feasibility — 10 pts
+• Financials & Timeline — 5 pts
+• Monitoring & Evaluation — 5 pts
+• Idea Creativity — 15 pts
+
+Please mark accurately. Avoid leniency, strictness, or central tendency. Score each criterion independently.`;
   await pool.query(
     `INSERT INTO app_settings (id, case_link, instructions) VALUES (1, $1, $2)
      ON CONFLICT (id) DO UPDATE SET case_link = EXCLUDED.case_link, instructions = EXCLUDED.instructions`,

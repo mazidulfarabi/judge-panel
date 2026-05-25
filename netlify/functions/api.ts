@@ -179,10 +179,13 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       return json(200, r.rows[0] || {});
     }
 
-    // GET /api/leaderboard
+    // GET /api/leaderboard (judges & admin only)
     if (parts[0] === "leaderboard" && method === "GET") {
+      const auth = await requireAuth(event);
+      if (!auth.ok) return auth.response;
+
       const r = await pool.query(`
-        SELECT t.id, t.name,
+        SELECT t.id, t.name, t.pdf_drive_link,
           COUNT(DISTINCT s.judge_id) FILTER (WHERE s.is_submitted) AS judges_scored,
           ROUND(AVG(
             COALESCE(s.situation_analysis,0)+COALESCE(s.problem_analysis,0)+
@@ -193,8 +196,7 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
           ) FILTER (WHERE s.is_submitted), 2) AS avg_total
         FROM teams t
         LEFT JOIN scores s ON s.team_id = t.id
-        GROUP BY t.id, t.name
-        HAVING COUNT(DISTINCT s.judge_id) FILTER (WHERE s.is_submitted) > 0
+        GROUP BY t.id, t.name, t.pdf_drive_link
         ORDER BY avg_total DESC NULLS LAST, t.name
       `);
       return json(200, { teams: r.rows });
@@ -289,9 +291,10 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         const err = validateScores(body);
         if (err) return json(400, { error: err });
 
+        const isSubmitted = Boolean(body.submit);
         const teamFeedback = String(body.team_feedback || "").trim();
-        if (!teamFeedback) {
-          return json(400, { error: "Team feedback is mandatory" });
+        if (isSubmitted && !teamFeedback) {
+          return json(400, { error: "Overall team feedback is required when submitting marks" });
         }
 
         const assigned = await pool.query(
@@ -303,7 +306,6 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         const feedbackVals = CRITERIA.map((c) => String(body[`feedback_${c.key}`] || ""));
 
         const scoreVals = CRITERIA.map((c) => Number(body[c.key]) || 0);
-        const isSubmitted = Boolean(body.submit);
 
         await pool.query(
           `INSERT INTO scores (
