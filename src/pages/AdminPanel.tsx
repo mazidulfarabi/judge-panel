@@ -209,15 +209,51 @@ export default function AdminPanel() {
     setMsg("");
     try {
       await run("Distributing assignments…", async () => {
-        const r = await api<{ assigned: number }>("/admin/assign/auto-distribute", {
+        const r = await api<{
+          assigned: number;
+          teams_remaining?: number;
+          message?: string;
+        }>("/admin/assign/auto-distribute", {
           method: "POST",
           body: JSON.stringify({ per_judge: perJudge }),
         });
-        setMsg(`Auto-distributed ${r.assigned} assignments (${perJudge} per judge target).`);
+        if (r.message) {
+          setMsg(r.message);
+        } else {
+          const extra =
+            r.teams_remaining && r.teams_remaining > 0
+              ? ` · ${r.teams_remaining} team(s) still unassigned (raise per-judge or add judges)`
+              : "";
+          setMsg(
+            `Auto-distributed ${r.assigned} assignment(s) (up to ${perJudge} per judge)${extra}.`
+          );
+        }
         await refresh();
       });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Distribute failed");
+    }
+  }
+
+  async function deleteAllAssignments() {
+    if (!assignments.length) return;
+    if (
+      !confirm(
+        `Delete ALL ${assignments.length} assignments? This also clears every judge's marks. This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setErr("");
+    setMsg("");
+    try {
+      await run("Deleting all assignments…", async () => {
+        const r = await api<{ deleted: number }>("/admin/assignments/all", { method: "DELETE" });
+        setMsg(`Deleted ${r.deleted} assignment(s) and related scores.`);
+        await refresh();
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Delete failed");
     }
   }
 
@@ -507,6 +543,9 @@ export default function AdminPanel() {
             Auto-distribute
           </button>
         </div>
+        <p className="text-muted" style={{ fontSize: "0.85rem", margin: "0.75rem 0 0" }}>
+          Assigns each unassigned team to one judge (round-robin), up to the per-judge limit.
+        </p>
       </div>
 
       <div className="card">
@@ -518,7 +557,28 @@ export default function AdminPanel() {
       </div>
 
       <div className="card">
-        <h2>Assignments &amp; scores</h2>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "0.75rem",
+            marginBottom: "0.75rem",
+          }}
+        >
+          <h2 style={{ margin: 0 }}>Assignments &amp; scores</h2>
+          {!loading && assignments.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={deleteAllAssignments}
+              disabled={isPending}
+            >
+              Delete all assignments
+            </button>
+          )}
+        </div>
         <p className="text-muted" style={{ fontSize: "0.9rem", marginTop: 0 }}>
           Remove an assignment (and its marks), or clear marks only so the judge can re-mark.
         </p>

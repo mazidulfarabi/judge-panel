@@ -145,6 +145,27 @@ function parseCsvTeams(csv: string): { name: string; link: string; late_penalty:
 }
 
 const TEAM_IMPORT_BATCH = 100;
+const ASSIGNMENT_BATCH = 100;
+
+async function insertAssignmentsBatch(
+  pool: ReturnType<typeof getPool>,
+  pairs: { judge_id: string; team_id: string }[]
+): Promise<number> {
+  if (!pairs.length) return 0;
+  let inserted = 0;
+  for (let i = 0; i < pairs.length; i += ASSIGNMENT_BATCH) {
+    const batch = pairs.slice(i, i + ASSIGNMENT_BATCH);
+    const r = await pool.query(
+      `INSERT INTO assignments (judge_id, team_id)
+       SELECT u.judge_id, u.team_id
+       FROM UNNEST($1::uuid[], $2::uuid[]) AS u(judge_id, team_id)
+       ON CONFLICT (judge_id, team_id) DO NOTHING`,
+      [batch.map((p) => p.judge_id), batch.map((p) => p.team_id)]
+    );
+    inserted += r.rowCount ?? 0;
+  }
+  return inserted;
+}
 
 async function upsertTeamsBatch(
   pool: ReturnType<typeof getPool>,
@@ -469,6 +490,12 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         return json(200, { assignments: r.rows });
       }
 
+      if (parts[1] === "assignments" && parts[2] === "all" && method === "DELETE") {
+        await pool.query("DELETE FROM scores");
+        const del = await pool.query("DELETE FROM assignments");
+        return json(200, { deleted: del.rowCount ?? 0 });
+      }
+
       if (parts[1] === "assignments" && parts[2] && method === "DELETE") {
         const assignmentId = parts[2];
         const row = await pool.query(
@@ -589,31 +616,54 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
 
       if (parts[1] === "assign" && parts[2] === "auto-distribute" && method === "POST") {
         const { per_judge } = JSON.parse(event.body || "{}");
-        const n = Number(per_judge) || 20;
-        const judges = await pool.query("SELECT id FROM judges WHERE is_active ORDER BY display_name");
-        const teams = await pool.query("SELECT id FROM teams ORDER BY random()");
-        let ti = 0;
-        let total = 0;
-        for (const j of judges.rows) {
-          const existing = await pool.query(
-            "SELECT COUNT(*)::int AS c FROM assignments WHERE judge_id = $1",
-            [j.id]
-          );
-          let need = n - (existing.rows[0]?.c || 0);
-          while (need > 0 && ti < teams.rows.length) {
-            const res = await pool.query(
-              `INSERT INTO assignments (judge_id, team_id) VALUES ($1, $2)
-               ON CONFLICT DO NOTHING RETURNING id`,
-              [j.id, teams.rows[ti].id]
-            );
-            ti++;
-            if (res.rows[0]) {
-              need--;
-              total++;
+        const n = Math.max(1, Math.floor(Number(per_judge) || 20));
+
+        const [judgesRes, countsRes, unassignedRes] = await Promise.all([
+          pool.query("SELECT id FROM judges WHERE is_active ORDER BY display_name"),
+          pool.query("SELECT judge_id, COUNT(*)::int AS c FROM assignments GROUP BY judge_id"),
+          pool.query(
+            `SELECT t.id FROM teams t
+             WHERE NOT EXISTS (SELECT 1 FROM assignments a WHERE a.team_id = t.id)
+             ORDER BY random()`
+          ),
+        ]);
+
+        if (!judgesRes.rows.length) return json(400, { error: "No active judges" });
+        if (!unassignedRes.rows.length) {
+          return json(200, { assigned: 0, per_judge: n, message: "All teams already have an assignment" });
+        }
+
+        const countMap = new Map<string, number>(
+          countsRes.rows.map((r) => [r.judge_id as string, r.c as number])
+        );
+        const judgeIds = judgesRes.rows.map((r) => r.id as string);
+        const pairs: { judge_id: string; team_id: string }[] = [];
+        let judgeIdx = 0;
+
+        for (const row of unassignedRes.rows) {
+          const teamId = row.id as string;
+          let placed = false;
+          for (let attempt = 0; attempt < judgeIds.length; attempt++) {
+            const judgeId = judgeIds[judgeIdx % judgeIds.length];
+            judgeIdx++;
+            const current = countMap.get(judgeId) || 0;
+            if (current < n) {
+              pairs.push({ judge_id: judgeId, team_id: teamId });
+              countMap.set(judgeId, current + 1);
+              placed = true;
+              break;
             }
           }
+          if (!placed) break;
         }
-        return json(200, { assigned: total, per_judge: n });
+
+        const assigned = await insertAssignmentsBatch(pool, pairs);
+        const skipped = unassignedRes.rows.length - pairs.length;
+        return json(200, {
+          assigned,
+          per_judge: n,
+          teams_remaining: skipped,
+        });
       }
 
       if (parts[1] === "export" && parts[2] === "scorecards" && method === "GET") {
