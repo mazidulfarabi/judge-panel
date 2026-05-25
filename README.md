@@ -89,7 +89,7 @@ The database schema was not created. Either:
 1. **Import teams**: CSV with `team_name,pdf_drive_link,late_penalty` per line (`late_penalty` = points deducted, 0 if on time).
 2. **Create judges**: Single form or bulk lines: `username,password,Display Name,Title`
 3. **Assign**: Random N teams to one judge, assign all teams to one judge, or auto-distribute 20 per judge across all judges.
-4. **Manage**: Delete judges; remove assignments (and their marks); clear scores only (keeps assignment so the judge can mark again).
+4. **Manage**: Delete judges or teams (single or all teams); remove assignments (and their marks); clear scores only (keeps assignment so the judge can mark again).
 5. **Export**: Download ZIP of per-team PDF scorecards when marks are submitted.
 
 ## Security notes

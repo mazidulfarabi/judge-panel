@@ -188,6 +188,45 @@ export default function AdminPanel() {
     }
   }
 
+  async function deleteTeam(t: Team) {
+    if (
+      !confirm(
+        `Delete team "${t.name}"? This removes all assignments and scores for this team.`
+      )
+    ) {
+      return;
+    }
+    setErr("");
+    setMsg("");
+    try {
+      await api(`/admin/teams/${t.id}`, { method: "DELETE" });
+      setMsg(`Team "${t.name}" deleted.`);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Delete failed");
+    }
+  }
+
+  async function deleteAllTeams() {
+    if (!teams.length) return;
+    if (
+      !confirm(
+        `Delete ALL ${teams.length} teams? This removes every assignment and score linked to teams. This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setErr("");
+    setMsg("");
+    try {
+      const r = await api<{ deleted: number }>("/admin/teams/all", { method: "DELETE" });
+      setMsg(`Deleted ${r.deleted} team(s).`);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Delete failed");
+    }
+  }
+
   async function deleteJudge(j: Judge) {
     if (
       !confirm(
@@ -518,7 +557,14 @@ export default function AdminPanel() {
       </div>
 
       <div className="card">
-        <h2>Teams</h2>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.75rem" }}>
+          <h2 style={{ margin: 0 }}>Teams</h2>
+          {!loading && teams.length > 0 && (
+            <button type="button" className="btn btn-danger btn-sm" onClick={deleteAllTeams}>
+              Delete all teams
+            </button>
+          )}
+        </div>
         {loading ? (
           <LoadingSpinner />
         ) : !teams.length ? (
@@ -532,6 +578,7 @@ export default function AdminPanel() {
                 <th>Late penalty</th>
                 <th>Assigned</th>
                 <th>Scored</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -541,6 +588,15 @@ export default function AdminPanel() {
                   <td>{Number(t.late_penalty) > 0 ? `−${t.late_penalty}` : "—"}</td>
                   <td>{t.judges_assigned}</td>
                   <td>{t.judges_scored}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-sm"
+                      onClick={() => deleteTeam(t)}
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

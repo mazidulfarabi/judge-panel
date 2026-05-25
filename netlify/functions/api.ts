@@ -404,6 +404,23 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         return json(200, { imported: teams.length, upserted: inserted });
       }
 
+      if (parts[1] === "teams" && parts[2] === "all" && method === "DELETE") {
+        const del = await pool.query("DELETE FROM teams");
+        return json(200, { ok: true, deleted: del.rowCount ?? 0 });
+      }
+
+      if (
+        parts[1] === "teams" &&
+        parts[2] &&
+        parts[2] !== "import" &&
+        method === "DELETE"
+      ) {
+        const teamId = parts[2];
+        const del = await pool.query("DELETE FROM teams WHERE id = $1 RETURNING id", [teamId]);
+        if (!del.rows[0]) return json(404, { error: "Team not found" });
+        return json(200, { ok: true });
+      }
+
       if (parts[1] === "judges" && method === "GET") {
         const r = await pool.query(`
           SELECT j.id, j.username, j.display_name, j.title, j.is_active,
