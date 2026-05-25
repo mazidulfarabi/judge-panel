@@ -17,6 +17,7 @@ import {
   validateScores,
 } from "./utils/criteria";
 import { buildTeamScorecardPdf } from "./utils/pdf-export";
+import { ensureSchema } from "./utils/migrate";
 
 const headers = {
   "Content-Type": "application/json",
@@ -77,6 +78,7 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
   const pool = getPool();
 
   try {
+    await ensureSchema(pool);
     // POST /api/auth/login
     if (parts[0] === "auth" && parts[1] === "login" && method === "POST") {
       const { username, password, role } = JSON.parse(event.body || "{}");

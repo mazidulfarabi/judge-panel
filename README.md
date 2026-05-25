@@ -73,9 +73,16 @@ npm run db:init
 | `ADMIN_USERNAME` | Admin login (optional; run `db:init` locally first or set and redeploy) |
 | `ADMIN_PASSWORD` | Admin password |
 
-5. Run `npm run db:init` once locally (or via SQL shell) to create tables and admin user.
+5. Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in Netlify env vars. Tables are created automatically on the first API request (login). Or run locally once: `npm run db:init`.
 
 6. Deploy. Judges log in at `/` (role: Judge). Admin at `/` (role: Admin).
+
+### "relation admins does not exist"
+
+The database schema was not created. Either:
+
+- **Redeploy** after setting `DATABASE_URL`, `DB_CA_CERT`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD` in Netlify — the API will create tables on the first request, or
+- Run locally: `npm run db:init` (with `.env` configured).
 
 ## Admin workflow
 
