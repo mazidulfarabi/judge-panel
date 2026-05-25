@@ -17,7 +17,7 @@ import {
   validateScores,
 } from "./utils/criteria";
 import { buildTeamScorecardPdf } from "./utils/pdf-export";
-import { ensureSchema } from "./utils/migrate";
+import { ensureSchema, getDbStatus } from "./utils/migrate";
 
 const headers = {
   "Content-Type": "application/json",
@@ -264,6 +264,11 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
     if (parts[0] === "admin") {
       const auth = await requireAuth(event, ["admin"]);
       if (!auth.ok) return auth.response;
+
+      if (parts[1] === "db-status" && method === "GET") {
+        const status = await getDbStatus(pool);
+        return json(200, status);
+      }
 
       if (parts[1] === "stats" && method === "GET") {
         const r = await pool.query(`

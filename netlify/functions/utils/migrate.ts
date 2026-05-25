@@ -5,16 +5,34 @@ import { SCHEMA_SQL } from "./schema-sql";
 
 let initPromise: Promise<void> | null = null;
 
-async function runInit(pool: pg.Pool): Promise<void> {
-  const exists = await pool.query(
-    `SELECT EXISTS (
-       SELECT 1 FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = 'admins'
-     ) AS ok`
-  );
-  if (exists.rows[0]?.ok) return;
+function schemaStatements(): string[] {
+  return SCHEMA_SQL.split(";")
+    .map((s) => s.replace(/--[^\n]*/g, "").trim())
+    .filter((s) => s.length > 0);
+}
 
-  await pool.query(SCHEMA_SQL);
+async function adminsTableExists(pool: pg.Pool): Promise<boolean> {
+  try {
+    await pool.query("SELECT 1 FROM public.admins LIMIT 1");
+    return true;
+  } catch (e: unknown) {
+    const code = (e as { code?: string })?.code;
+    if (code === "42P01") return false;
+    throw e;
+  }
+}
+
+async function runInit(pool: pg.Pool): Promise<void> {
+  if (await adminsTableExists(pool)) return;
+
+  for (const statement of schemaStatements()) {
+    await pool.query(statement);
+  }
+
+  const dbInfo = await pool.query(
+    "SELECT current_database() AS db, current_schema() AS schema"
+  );
+  console.log("Database schema initialized.", dbInfo.rows[0]);
 
   const caseLink =
     env("CASE_LINK") ||
@@ -39,8 +57,6 @@ async function runInit(pool: pg.Pool): Promise<void> {
       [adminUser, hash]
     );
   }
-
-  console.log("Database schema initialized.");
 }
 
 /** Create tables + seed admin on first API call if schema is missing. */
@@ -52,4 +68,27 @@ export function ensureSchema(pool: pg.Pool): Promise<void> {
     });
   }
   return initPromise;
+}
+
+export async function getDbStatus(pool: pg.Pool) {
+  await ensureSchema(pool);
+  const db = await pool.query("SELECT current_database() AS database");
+  const tables = await pool.query(
+    `SELECT table_schema, table_name
+     FROM information_schema.tables
+     WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'crdb_internal')
+       AND table_type = 'BASE TABLE'
+     ORDER BY table_schema, table_name`
+  );
+  const counts = await pool.query(`
+    SELECT
+      (SELECT COUNT(*)::int FROM judges) AS judges,
+      (SELECT COUNT(*)::int FROM teams) AS teams,
+      (SELECT COUNT(*)::int FROM admins) AS admins
+  `);
+  return {
+    connected: db.rows[0],
+    tables: tables.rows,
+    counts: counts.rows[0],
+  };
 }

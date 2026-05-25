@@ -3,6 +3,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, clearSession, downloadZip } from "../api";
 
 type Stats = { teams: number; judges: number; assignments: number; submissions: number };
+type DbStatus = {
+  connected: { database: string };
+  tables: { table_schema: string; table_name: string }[];
+  counts: { judges: number; teams: number; admins: number };
+};
 type Team = { id: string; name: string; pdf_drive_link: string; judges_assigned: number; judges_scored: number };
 type Judge = {
   id: string;
@@ -16,6 +21,7 @@ type Judge = {
 export default function AdminPanel() {
   const nav = useNavigate();
   const [stats, setStats] = useState<Stats | null>(null);
+  const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [judges, setJudges] = useState<Judge[]>([]);
   const [csv, setCsv] = useState("");
@@ -37,10 +43,12 @@ export default function AdminPanel() {
       api<Stats>("/admin/stats"),
       api<{ teams: Team[] }>("/admin/teams"),
       api<{ judges: Judge[] }>("/admin/judges"),
-    ]).then(([s, t, j]) => {
+      api<DbStatus>("/admin/db-status"),
+    ]).then(([s, t, j, db]) => {
       setStats(s);
       setTeams(t.teams);
       setJudges(j.judges);
+      setDbStatus(db);
     });
   }
 
@@ -64,6 +72,8 @@ export default function AdminPanel() {
   }
 
   async function createJudge() {
+    setErr("");
+    setMsg("");
     try {
       await api("/admin/judges", {
         method: "POST",
@@ -81,7 +91,7 @@ export default function AdminPanel() {
       setJTitle("");
       await refresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed");
+      setErr(e instanceof Error ? e.message : "Failed to create judge");
     }
   }
 
@@ -172,6 +182,29 @@ export default function AdminPanel() {
           </button>
         </div>
       </nav>
+
+      {dbStatus && (
+        <div className="card" style={{ marginBottom: "1.25rem" }}>
+          <h2 style={{ marginTop: 0 }}>Database (what Netlify uses)</h2>
+          <p style={{ margin: "0.25rem 0", fontSize: "0.9rem" }}>
+            <strong>Database:</strong> {dbStatus.connected.database}
+          </p>
+          <p style={{ margin: "0.25rem 0", fontSize: "0.9rem" }}>
+            <strong>Tables:</strong>{" "}
+            {dbStatus.tables.length
+              ? dbStatus.tables.map((t) => `${t.table_schema}.${t.table_name}`).join(", ")
+              : "none"}
+            {" · "}
+            <strong>Rows:</strong> {dbStatus.counts.judges} judges, {dbStatus.counts.teams} teams,{" "}
+            {dbStatus.counts.admins} admins
+          </p>
+          <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: 0 }}>
+            Compare this database name with Cockroach Console → SQL Shell →{" "}
+            <code>SHOW TABLES IN defaultdb;</code>. If they differ, fix <code>DATABASE_URL</code> in
+            Netlify.
+          </p>
+        </div>
+      )}
 
       {stats && (
         <div className="grid-2" style={{ marginBottom: "1.25rem" }}>

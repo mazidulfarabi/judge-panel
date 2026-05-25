@@ -24,9 +24,17 @@ const ssl = process.env.DB_CA_CERT
 
 const pool = new pg.Pool({ connectionString: conn, ssl });
 const schema = fs.readFileSync(path.join(__dirname, "schema.sql"), "utf8");
+const statements = schema
+  .split(";")
+  .map((s) => s.replace(/--[^\n]*/g, "").trim())
+  .filter((s) => s.length > 0);
 
 try {
-  await pool.query(schema);
+  for (const statement of statements) {
+    await pool.query(statement);
+  }
+  const db = await pool.query("SELECT current_database() AS database");
+  console.log("Connected database:", db.rows[0]?.database);
   const caseLink =
     process.env.CASE_LINK ||
     "https://drive.google.com/file/d/119MYxnOduI2LWv5N4gAowNnpPSr6xnjy/view?usp=sharing";
