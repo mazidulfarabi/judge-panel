@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
-import { CRITERIA, TOTAL_MAX, drivePreviewUrl } from "../criteria";
+import { CRITERIA, TOTAL_MAX } from "../criteria";
+import DocumentViewer from "../components/DocumentViewer";
 
 type TeamData = Record<string, string | number | boolean | null>;
 
@@ -80,18 +81,15 @@ export default function MarkTeam() {
 
       <h1>{String(team?.name || "Team")}</h1>
 
-      <div className="card" style={{ marginBottom: "1.25rem" }}>
-        <h2 style={{ marginTop: 0 }}>Solution PDF</h2>
-        <iframe
-          className="pdf-frame"
-          title="Solution"
-          src={drivePreviewUrl(String(team?.pdf_drive_link || ""))}
-        />
-        <p style={{ marginTop: "0.5rem" }}>
-          <a href={String(team?.pdf_drive_link)} target="_blank" rel="noreferrer">
-            Open in new tab
-          </a>
-        </p>
+      <div className="card doc-card" style={{ marginBottom: "1.25rem" }}>
+        <h2 style={{ marginTop: 0 }}>Team submission</h2>
+        {teamId && (
+          <DocumentViewer
+            apiPath={`/judge/team/${teamId}/document`}
+            driveLink={String(team?.pdf_drive_link || "")}
+            title="Team submission"
+          />
+        )}
       </div>
 
       <form onSubmit={onSubmit}>

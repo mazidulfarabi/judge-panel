@@ -18,6 +18,11 @@ import {
 } from "./utils/criteria";
 import { buildTeamScorecardPdf } from "./utils/pdf-export";
 import { ensureSchema, getDbStatus } from "./utils/migrate";
+import {
+  driveEmbedUrl,
+  extractDriveFileId,
+  fetchDrivePublicFile,
+} from "./utils/drive";
 
 const headers = {
   "Content-Type": "application/json",
@@ -28,6 +33,60 @@ const headers = {
 
 function json(status: number, body: unknown) {
   return { statusCode: status, headers, body: JSON.stringify(body) };
+}
+
+function documentBinary(data: Uint8Array, contentType: string) {
+  const isPdf =
+    contentType.includes("pdf") || (data[0] === 0x25 && data[1] === 0x50 && data[2] === 0x44 && data[3] === 0x46);
+  return {
+    statusCode: 200,
+    headers: {
+      ...headers,
+      "Content-Type": isPdf ? "application/pdf" : contentType,
+      "Content-Disposition": "inline",
+      "Cache-Control": "private, max-age=300",
+    },
+    body: Buffer.from(data).toString("base64"),
+    isBase64Encoded: true,
+  };
+}
+
+function documentFallback(link: string, message: string) {
+  return json(200, {
+    fallback: true,
+    embed_url: driveEmbedUrl(link),
+    message,
+  });
+}
+
+function isPdfBytes(data: Uint8Array, contentType: string): boolean {
+  if (contentType.includes("pdf")) return true;
+  return data.length >= 4 && data[0] === 0x25 && data[1] === 0x50 && data[2] === 0x44 && data[3] === 0x46;
+}
+
+async function streamDriveLink(link: string) {
+  const fileId = extractDriveFileId(link);
+  if (!fileId) {
+    return json(400, {
+      error: /\/folders\//i.test(link)
+        ? "Folder links cannot be previewed. Use a direct file link for each submission."
+        : "Invalid Google Drive link.",
+    });
+  }
+  const result = await fetchDrivePublicFile(fileId);
+  if (!result.ok) {
+    if (result.code === "too_large") {
+      return documentFallback(link, result.error);
+    }
+    return json(403, { error: result.error });
+  }
+  if (!isPdfBytes(result.data, result.contentType)) {
+    return documentFallback(
+      link,
+      "This file is not a PDF. Showing Google Drive preview — ensure the file is shared with “Anyone with the link”."
+    );
+  }
+  return documentBinary(result.data, result.contentType);
 }
 
 function pathParts(event: HandlerEvent): string[] {
@@ -188,6 +247,26 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
           [judgeId]
         );
         return json(200, { teams: r.rows });
+      }
+
+      if (parts[1] === "team" && parts[2] && parts[3] === "document" && method === "GET") {
+        const teamId = parts[2];
+        const r = await pool.query(
+          `SELECT t.pdf_drive_link
+           FROM assignments a
+           JOIN teams t ON t.id = a.team_id
+           WHERE a.judge_id = $1 AND a.team_id = $2`,
+          [judgeId, teamId]
+        );
+        if (!r.rows[0]) return json(404, { error: "Team not assigned" });
+        return streamDriveLink(String(r.rows[0].pdf_drive_link || ""));
+      }
+
+      if (parts[1] === "case-document" && method === "GET") {
+        const settings = await pool.query("SELECT case_link FROM app_settings WHERE id = 1");
+        const link = String(settings.rows[0]?.case_link || "");
+        if (!link) return json(404, { error: "Case document not configured" });
+        return streamDriveLink(link);
       }
 
       if (parts[1] === "team" && parts[2] && method === "GET") {

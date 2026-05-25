@@ -25,6 +25,40 @@ export async function api<T>(
   return res as unknown as T;
 }
 
+export type DocumentFetchResult =
+  | { type: "blob"; blob: Blob }
+  | { type: "fallback"; embedUrl: string; message?: string };
+
+export async function fetchDocument(path: string): Promise<DocumentFetchResult> {
+  const token = getToken();
+  const res = await fetch(`${API}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  const ct = res.headers.get("content-type") || "";
+
+  if (res.ok && ct.includes("application/json")) {
+    const data = await res.json();
+    return {
+      type: "fallback",
+      embedUrl: String(data.embed_url || ""),
+      message: data.message ? String(data.message) : undefined,
+    };
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || "Failed to load document");
+  }
+
+  const blob = await res.blob();
+  if (blob.type.includes("pdf") || ct.includes("pdf")) {
+    return { type: "blob", blob };
+  }
+
+  return { type: "blob", blob };
+}
+
 export async function downloadZip(path: string, filename: string) {
   const token = getToken();
   const res = await fetch(`${API}${path}`, {

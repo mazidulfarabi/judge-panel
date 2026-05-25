@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, clearSession, getSession } from "../api";
-import { drivePreviewUrl } from "../criteria";
+import DocumentViewer from "../components/DocumentViewer";
 
 type Team = {
   id: string;
@@ -92,17 +92,12 @@ export default function JudgeDashboard() {
 
           <div className="alert alert-warn">{dash.instructions}</div>
 
-          <div className="card" style={{ marginBottom: "1.25rem" }}>
+          <div className="card doc-card" style={{ marginBottom: "1.25rem" }}>
             <h2 style={{ marginTop: 0 }}>Case document</h2>
-            <p>
-              <a href={dash.case_link} target="_blank" rel="noreferrer">
-                Open case (Google Drive)
-              </a>
-            </p>
-            <iframe
-              className="pdf-frame"
-              title="Case"
-              src={drivePreviewUrl(dash.case_link)}
+            <DocumentViewer
+              apiPath="/judge/case-document"
+              driveLink={dash.case_link}
+              title="Case document"
             />
           </div>
         </>

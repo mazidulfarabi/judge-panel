@@ -20,8 +20,35 @@ export type CriterionKey = (typeof CRITERIA)[number]["key"];
 
 export const TOTAL_MAX = CRITERIA.reduce((s, c) => s + c.max, 0);
 
+/** Extract Google Drive file ID from common link formats. */
+export function extractDriveFileId(link: string): string | null {
+  if (!link?.trim()) return null;
+  if (/\/folders\//i.test(link)) return null;
+  const patterns = [
+    /\/file\/d\/([a-zA-Z0-9_-]+)/,
+    /\/presentation\/d\/([a-zA-Z0-9_-]+)/,
+    /\/document\/d\/([a-zA-Z0-9_-]+)/,
+    /\/open\?[^#]*\bid=([a-zA-Z0-9_-]+)/,
+    /[?&]id=([a-zA-Z0-9_-]+)/,
+  ];
+  for (const p of patterns) {
+    const m = link.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** Google embed URL (fallback when proxy cannot stream the file). */
+export function driveEmbedUrl(link: string): string {
+  const id = extractDriveFileId(link);
+  if (!id) return link;
+  if (/\/presentation\//i.test(link)) {
+    return `https://docs.google.com/presentation/d/${id}/embed?start=false&loop=false`;
+  }
+  return `https://drive.google.com/file/d/${id}/preview`;
+}
+
+/** @deprecated Use DocumentViewer + API proxy instead. */
 export function drivePreviewUrl(link: string): string {
-  const m = link.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
-  return link;
+  return driveEmbedUrl(link);
 }
