@@ -420,12 +420,13 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       if (parts[1] === "teams" && method === "GET") {
         const r = await pool.query(`
           SELECT t.id, t.name, t.pdf_drive_link, t.late_penalty,
-            COUNT(DISTINCT a.judge_id)::int AS judges_assigned,
-            COUNT(DISTINCT s.judge_id) FILTER (WHERE s.is_submitted)::int AS judges_scored
+            (SELECT COUNT(*)::int FROM assignments a WHERE a.team_id = t.id) AS judges_assigned,
+            (SELECT COUNT(*)::int FROM scores s WHERE s.team_id = t.id AND s.is_submitted) AS judges_scored,
+            (SELECT STRING_AGG(j.display_name, ', ' ORDER BY j.display_name)
+             FROM assignments a
+             JOIN judges j ON j.id = a.judge_id
+             WHERE a.team_id = t.id) AS judge_names
           FROM teams t
-          LEFT JOIN assignments a ON a.team_id = t.id
-          LEFT JOIN scores s ON s.team_id = t.id AND s.is_submitted
-          GROUP BY t.id, t.name, t.pdf_drive_link, t.late_penalty
           ORDER BY t.name
         `);
         return json(200, { teams: r.rows });
@@ -465,12 +466,10 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       if (parts[1] === "judges" && method === "GET") {
         const r = await pool.query(`
           SELECT j.id, j.username, j.display_name, j.title, j.is_active,
-            COUNT(a.id)::int AS assigned,
-            COUNT(s.id) FILTER (WHERE s.is_submitted)::int AS completed
+            (SELECT COUNT(*)::int FROM assignments a WHERE a.judge_id = j.id) AS assigned,
+            (SELECT COUNT(*)::int FROM scores s WHERE s.judge_id = j.id AND s.is_submitted) AS completed
           FROM judges j
-          LEFT JOIN assignments a ON a.judge_id = j.id
-          LEFT JOIN scores s ON s.judge_id = j.id AND s.is_submitted
-          GROUP BY j.id ORDER BY j.display_name
+          ORDER BY j.display_name
         `);
         return json(200, { judges: r.rows });
       }
@@ -573,6 +572,36 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
           [username, hash, display_name, title || ""]
         );
         return json(201, { judge: r.rows[0] });
+      }
+
+      if (parts[1] === "assign" && parts[2] === "single" && method === "POST") {
+        const { judge_id, team_id } = JSON.parse(event.body || "{}");
+        if (!judge_id || !team_id) {
+          return json(400, { error: "judge_id and team_id required" });
+        }
+        const judge = await pool.query("SELECT id FROM judges WHERE id = $1", [judge_id]);
+        if (!judge.rows[0]) return json(404, { error: "Judge not found" });
+        const team = await pool.query("SELECT id, name FROM teams WHERE id = $1", [team_id]);
+        if (!team.rows[0]) return json(404, { error: "Team not found" });
+        const ins = await pool.query(
+          `INSERT INTO assignments (judge_id, team_id) VALUES ($1, $2)
+           ON CONFLICT (judge_id, team_id) DO NOTHING
+           RETURNING id`,
+          [judge_id, team_id]
+        );
+        if (!ins.rows[0]) {
+          return json(200, {
+            assigned: false,
+            message: "This judge is already assigned to that team",
+          });
+        }
+        return json(201, {
+          assigned: true,
+          id: ins.rows[0].id,
+          judge_id,
+          team_id,
+          team_name: team.rows[0].name,
+        });
       }
 
       if (parts[1] === "assign" && parts[2] === "random" && method === "POST") {

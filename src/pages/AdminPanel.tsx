@@ -18,6 +18,7 @@ type Team = {
   late_penalty: number;
   judges_assigned: number;
   judges_scored: number;
+  judge_names: string | null;
 };
 type Judge = {
   id: string;
@@ -57,6 +58,7 @@ export default function AdminPanel() {
   const { pending, run, isPending } = usePendingAction();
 
   const [selJudge, setSelJudge] = useState("");
+  const [selTeam, setSelTeam] = useState("");
   const [randCount, setRandCount] = useState(20);
   const [perJudge, setPerJudge] = useState(20);
 
@@ -165,6 +167,35 @@ export default function AdminPanel() {
       });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Bulk failed");
+    }
+  }
+
+  async function assignTeamToJudge() {
+    if (!selJudge) return setErr("Select a judge");
+    if (!selTeam) return setErr("Select a team");
+    setErr("");
+    setMsg("");
+    const team = teams.find((t) => t.id === selTeam);
+    const judge = judges.find((j) => j.id === selJudge);
+    try {
+      await run("Assigning team…", async () => {
+        const r = await api<{
+          assigned: boolean;
+          message?: string;
+          team_name?: string;
+        }>("/admin/assign/single", {
+          method: "POST",
+          body: JSON.stringify({ judge_id: selJudge, team_id: selTeam }),
+        });
+        if (r.assigned) {
+          setMsg(`Assigned "${team?.name ?? r.team_name}" to ${judge?.display_name ?? "judge"}.`);
+        } else {
+          setMsg(r.message ?? "Already assigned.");
+        }
+        await refresh();
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Assign failed");
     }
   }
 
@@ -501,17 +532,39 @@ export default function AdminPanel() {
 
       <div className="card">
         <h2>Assignments</h2>
-        <div className="field">
-          <label className="label">Judge</label>
-          <select value={selJudge} onChange={(e) => setSelJudge(e.target.value)}>
-            <option value="">Select judge…</option>
-            {judges.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.display_name} ({j.assigned} assigned, {j.completed} done)
-              </option>
-            ))}
-          </select>
+        <div className="grid-2">
+          <div className="field">
+            <label className="label">Judge</label>
+            <select className="input" value={selJudge} onChange={(e) => setSelJudge(e.target.value)}>
+              <option value="">Select judge…</option>
+              {judges.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.display_name} ({j.assigned} assigned, {j.completed} done)
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">Team</label>
+            <select className="input" value={selTeam} onChange={(e) => setSelTeam(e.target.value)}>
+              <option value="">Select team…</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.judge_names ? ` — ${t.judge_names}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+        <button
+          className="btn btn-primary"
+          style={{ marginTop: "0.75rem" }}
+          onClick={assignTeamToJudge}
+          disabled={isPending}
+        >
+          Assign team to judge
+        </button>
         <div className="team-card-actions" style={{ marginTop: "0.75rem" }}>
           <div className="field" style={{ flex: "1 1 100px", marginBottom: 0 }}>
             <label className="label">Random count</label>
@@ -707,7 +760,7 @@ export default function AdminPanel() {
               <tr>
                 <th>Team</th>
                 <th>Late penalty</th>
-                <th>Assigned</th>
+                <th>Judges</th>
                 <th>Scored</th>
                 <th></th>
               </tr>
@@ -717,7 +770,13 @@ export default function AdminPanel() {
                 <tr key={t.id}>
                   <td>{t.name}</td>
                   <td>{Number(t.late_penalty) > 0 ? `−${t.late_penalty}` : "—"}</td>
-                  <td>{t.judges_assigned}</td>
+                  <td>
+                    {t.judge_names ? (
+                      <span title={`${t.judges_assigned} judge(s)`}>{t.judge_names}</span>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
                   <td>{t.judges_scored}</td>
                   <td>
                     <button

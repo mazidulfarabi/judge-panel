@@ -87,9 +87,17 @@ export default function JudgeDashboard() {
                 Please complete checking the solutions by {DEADLINE} (if not already).
               </span>
             </p>
+            <h3 style={{ margin: "0.75rem 0 0.5rem", fontSize: "1rem", fontWeight: 600 }}>
+              Judge instructions
+            </h3>
             {dash.instructions ? (
-              <p style={{ margin: 0 }}>{dash.instructions}</p>
+              <p style={{ margin: "0 0 0.5rem", whiteSpace: "pre-line" }}>{dash.instructions}</p>
             ) : null}
+            <p style={{ margin: "0 0 0.75rem" }}>
+              Please view the{" "}
+              <Link to="/leaderboard">leaderboard</Link> to do comparative marking to ensure proper
+              marking.
+            </p>
             <ul className="instructions-criteria">
               {CRITERIA.map((c) => (
                 <li key={c.key}>
