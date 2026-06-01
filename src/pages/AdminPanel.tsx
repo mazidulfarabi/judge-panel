@@ -5,7 +5,14 @@ import AppShell from "../components/AppShell";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { usePendingAction } from "../hooks/usePendingAction";
 
-type Stats = { teams: number; judges: number; assignments: number; submissions: number };
+type Stats = {
+  teams: number;
+  judges: number;
+  assignments: number;
+  teams_with_judge: number;
+  teams_multi_judge: number;
+  submissions: number;
+};
 type DbStatus = {
   connected: { database: string };
   tables: { table_schema: string; table_name: string }[];
@@ -227,7 +234,11 @@ export default function AdminPanel() {
           method: "POST",
           body: JSON.stringify({ judge_id: selJudge, team_ids: teams.map((t) => t.id) }),
         });
-        setMsg(`Bulk assigned ${r.assigned} teams to judge.`);
+        const skip =
+          "skipped" in r && typeof r.skipped === "number" && r.skipped > 0
+            ? ` (${r.skipped} skipped — already assigned to another judge)`
+            : "";
+        setMsg(`Bulk assigned ${r.assigned} teams to judge${skip}.`);
         await refresh();
       });
     } catch (e) {
@@ -263,6 +274,38 @@ export default function AdminPanel() {
       });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Distribute failed");
+    }
+  }
+
+  async function dedupeAssignments() {
+    if (
+      !confirm(
+        "Remove extra judges on teams that have more than one? Keeps the earliest assignment per team and clears that judge's marks for removed assignments."
+      )
+    ) {
+      return;
+    }
+    setErr("");
+    setMsg("");
+    try {
+      await run("Removing duplicate assignments…", async () => {
+        const r = await api<{
+          removed: number;
+          teams_affected: number;
+          teams: { team_name: string; judges: string }[];
+        }>("/admin/assignments/dedupe", { method: "POST" });
+        if (!r.removed) {
+          setMsg("No duplicate team assignments found.");
+        } else {
+          const names = r.teams.map((t) => t.team_name).join(", ");
+          setMsg(
+            `Removed ${r.removed} extra assignment(s) on ${r.teams_affected} team(s)${names ? `: ${names}` : ""}.`
+          );
+        }
+        await refresh();
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Dedupe failed");
     }
   }
 
@@ -440,19 +483,42 @@ export default function AdminPanel() {
       )}
 
       {stats && (
-        <div className="stat-grid" style={{ marginBottom: "1rem" }}>
-          {[
-            ["Teams", stats.teams],
-            ["Judges", stats.judges],
-            ["Assignments", stats.assignments],
-            ["Submissions", stats.submissions],
-          ].map(([label, val]) => (
-            <div key={String(label)} className="card stat-box">
-              <div className="stat-num">{val}</div>
-              <div className="stat-label">{label}</div>
+        <>
+          <div className="stat-grid" style={{ marginBottom: "0.5rem" }}>
+            {[
+              ["Teams", stats.teams],
+              ["Judges", stats.judges],
+              ["Assignments", stats.assignments],
+              ["Submissions", stats.submissions],
+            ].map(([label, val]) => (
+              <div key={String(label)} className="card stat-box">
+                <div className="stat-num">{val}</div>
+                <div className="stat-label">{label}</div>
+              </div>
+            ))}
+          </div>
+          {stats.assignments > stats.teams && (
+            <div className="alert alert-error" style={{ marginBottom: "1rem" }}>
+              <p style={{ margin: "0 0 0.5rem" }}>
+                <strong>{stats.assignments} assignments</strong> for{" "}
+                <strong>{stats.teams} teams</strong>
+                {stats.teams_multi_judge > 0 && (
+                  <> — {stats.teams_multi_judge} team(s) have more than one judge</>
+                )}
+                . Each team should have exactly one judge; extras usually come from &quot;Assign all
+                teams&quot; or random assign after auto-distribute.
+              </p>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={dedupeAssignments}
+                disabled={isPending}
+              >
+                Fix duplicate assignments
+              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       {msg && <div className="alert alert-success">{msg}</div>}
@@ -597,7 +663,8 @@ export default function AdminPanel() {
           </button>
         </div>
         <p className="text-muted" style={{ fontSize: "0.85rem", margin: "0.75rem 0 0" }}>
-          Assigns each unassigned team to one judge (round-robin), up to the per-judge limit.
+          Each team can only have one judge. Auto-distribute assigns unassigned teams round-robin (up
+          to the per-judge limit). Random assign only picks teams with no judge yet.
         </p>
       </div>
 
@@ -772,7 +839,17 @@ export default function AdminPanel() {
                   <td>{Number(t.late_penalty) > 0 ? `−${t.late_penalty}` : "—"}</td>
                   <td>
                     {t.judge_names ? (
-                      <span title={`${t.judges_assigned} judge(s)`}>{t.judge_names}</span>
+                      <span
+                        title={`${t.judges_assigned} judge(s)`}
+                        style={
+                          t.judges_assigned > 1
+                            ? { fontWeight: 600, color: "var(--danger)" }
+                            : undefined
+                        }
+                      >
+                        {t.judge_names}
+                        {t.judges_assigned > 1 ? " ⚠" : ""}
+                      </span>
                     ) : (
                       <span className="text-muted">—</span>
                     )}

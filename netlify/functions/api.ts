@@ -147,6 +147,21 @@ function parseCsvTeams(csv: string): { name: string; link: string; late_penalty:
 const TEAM_IMPORT_BATCH = 100;
 const ASSIGNMENT_BATCH = 100;
 
+/** If set, this team already has a judge (one judge per team). */
+async function teamAssignedJudgeId(
+  pool: ReturnType<typeof getPool>,
+  teamId: string
+): Promise<string | null> {
+  const r = await pool.query(
+    `SELECT a.judge_id FROM assignments a
+     INNER JOIN teams t ON t.id = a.team_id
+     WHERE a.team_id = $1
+     LIMIT 1`,
+    [teamId]
+  );
+  return (r.rows[0]?.judge_id as string) ?? null;
+}
+
 /** Remove assignment/score rows whose team no longer exists (stale after team delete). */
 async function purgeOrphanAssignmentData(pool: ReturnType<typeof getPool>): Promise<void> {
   await pool.query(
@@ -428,6 +443,13 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
             (SELECT COUNT(*)::int FROM judges WHERE is_active) AS judges,
             (SELECT COUNT(*)::int FROM assignments a
              WHERE EXISTS (SELECT 1 FROM teams t WHERE t.id = a.team_id)) AS assignments,
+            (SELECT COUNT(DISTINCT a.team_id)::int FROM assignments a
+             INNER JOIN teams t ON t.id = a.team_id) AS teams_with_judge,
+            (SELECT COUNT(*)::int FROM (
+               SELECT a.team_id FROM assignments a
+               INNER JOIN teams t ON t.id = a.team_id
+               GROUP BY a.team_id HAVING COUNT(*) > 1
+             ) multi) AS teams_multi_judge,
             (SELECT COUNT(*)::int FROM scores WHERE is_submitted) AS submissions
         `);
         return json(200, r.rows[0]);
@@ -606,6 +628,12 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         if (!judge.rows[0]) return json(404, { error: "Judge not found" });
         const team = await pool.query("SELECT id, name FROM teams WHERE id = $1", [team_id]);
         if (!team.rows[0]) return json(404, { error: "Team not found" });
+        const existingJudge = await teamAssignedJudgeId(pool, team_id);
+        if (existingJudge && existingJudge !== judge_id) {
+          return json(409, {
+            error: "This team is already assigned to another judge. Remove that assignment first.",
+          });
+        }
         const ins = await pool.query(
           `INSERT INTO assignments (judge_id, team_id) VALUES ($1, $2)
            ON CONFLICT (judge_id, team_id) DO NOTHING
@@ -633,20 +661,20 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
 
         const unassigned = await pool.query(
           `SELECT t.id FROM teams t
-           WHERE NOT EXISTS (
-             SELECT 1 FROM assignments a WHERE a.team_id = t.id AND a.judge_id = $1
-           )
-           ORDER BY random() LIMIT $2`,
-          [judge_id, count]
+           WHERE NOT EXISTS (SELECT 1 FROM assignments a WHERE a.team_id = t.id)
+           ORDER BY random() LIMIT $1`,
+          [count]
         );
+        let n = 0;
         for (const row of unassigned.rows) {
-          await pool.query(
+          const res = await pool.query(
             `INSERT INTO assignments (judge_id, team_id) VALUES ($1, $2)
              ON CONFLICT (judge_id, team_id) DO NOTHING`,
             [judge_id, row.id]
           );
+          if (res.rowCount) n++;
         }
-        return json(200, { assigned: unassigned.rows.length });
+        return json(200, { assigned: n });
       }
 
       if (parts[1] === "assign" && parts[2] === "bulk" && method === "POST") {
@@ -655,7 +683,13 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
           return json(400, { error: "judge_id and team_ids required" });
         }
         let n = 0;
+        let skipped = 0;
         for (const tid of team_ids) {
+          const existingJudge = await teamAssignedJudgeId(pool, tid);
+          if (existingJudge && existingJudge !== judge_id) {
+            skipped++;
+            continue;
+          }
           const res = await pool.query(
             `INSERT INTO assignments (judge_id, team_id) VALUES ($1, $2)
              ON CONFLICT (judge_id, team_id) DO NOTHING`,
@@ -663,7 +697,49 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
           );
           if (res.rowCount) n++;
         }
-        return json(200, { assigned: n });
+        return json(200, { assigned: n, skipped });
+      }
+
+      if (parts[1] === "assignments" && parts[2] === "dedupe" && method === "POST") {
+        await purgeOrphanAssignmentData(pool);
+        const dupes = await pool.query(
+          `SELECT a.team_id, t.name AS team_name,
+            STRING_AGG(j.display_name, ', ' ORDER BY a.assigned_at) AS judges
+           FROM assignments a
+           JOIN teams t ON t.id = a.team_id
+           JOIN judges j ON j.id = a.judge_id
+           GROUP BY a.team_id, t.name
+           HAVING COUNT(*) > 1`
+        );
+        const removed = await pool.query(`
+          WITH ranked AS (
+            SELECT a.id, a.judge_id, a.team_id,
+              ROW_NUMBER() OVER (PARTITION BY a.team_id ORDER BY a.assigned_at ASC, a.id) AS rn
+            FROM assignments a
+            INNER JOIN teams t ON t.id = a.team_id
+          ),
+          to_drop AS (SELECT id, judge_id, team_id FROM ranked WHERE rn > 1)
+          DELETE FROM scores s
+          USING to_drop d
+          WHERE s.judge_id = d.judge_id AND s.team_id = d.team_id
+        `);
+        const del = await pool.query(`
+          WITH ranked AS (
+            SELECT a.id,
+              ROW_NUMBER() OVER (PARTITION BY a.team_id ORDER BY a.assigned_at ASC, a.id) AS rn
+            FROM assignments a
+            INNER JOIN teams t ON t.id = a.team_id
+          )
+          DELETE FROM assignments a
+          USING ranked r
+          WHERE a.id = r.id AND r.rn > 1
+        `);
+        return json(200, {
+          removed: del.rowCount ?? 0,
+          scores_cleared: removed.rowCount ?? 0,
+          teams_affected: dupes.rows.length,
+          teams: dupes.rows,
+        });
       }
 
       if (parts[1] === "assign" && parts[2] === "auto-distribute" && method === "POST") {
