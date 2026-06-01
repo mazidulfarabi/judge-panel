@@ -147,6 +147,18 @@ function parseCsvTeams(csv: string): { name: string; link: string; late_penalty:
 const TEAM_IMPORT_BATCH = 100;
 const ASSIGNMENT_BATCH = 100;
 
+/** Remove assignment/score rows whose team no longer exists (stale after team delete). */
+async function purgeOrphanAssignmentData(pool: ReturnType<typeof getPool>): Promise<void> {
+  await pool.query(
+    `DELETE FROM scores s
+     WHERE NOT EXISTS (SELECT 1 FROM teams t WHERE t.id = s.team_id)`
+  );
+  await pool.query(
+    `DELETE FROM assignments a
+     WHERE NOT EXISTS (SELECT 1 FROM teams t WHERE t.id = a.team_id)`
+  );
+}
+
 async function insertAssignmentsBatch(
   pool: ReturnType<typeof getPool>,
   pairs: { judge_id: string; team_id: string }[]
@@ -269,11 +281,13 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
 
       if (parts[1] === "dashboard" && method === "GET") {
         const settings = await pool.query("SELECT case_link, instructions FROM app_settings WHERE id = 1");
+        await purgeOrphanAssignmentData(pool);
         const stats = await pool.query(
           `SELECT
             COUNT(*)::int AS assigned,
             COUNT(s.id) FILTER (WHERE s.is_submitted)::int AS completed
            FROM assignments a
+           INNER JOIN teams t ON t.id = a.team_id
            LEFT JOIN scores s ON s.judge_id = a.judge_id AND s.team_id = a.team_id AND s.is_submitted
            WHERE a.judge_id = $1`,
           [judgeId]
@@ -407,11 +421,13 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       }
 
       if (parts[1] === "stats" && method === "GET") {
+        await purgeOrphanAssignmentData(pool);
         const r = await pool.query(`
           SELECT
             (SELECT COUNT(*)::int FROM teams) AS teams,
             (SELECT COUNT(*)::int FROM judges WHERE is_active) AS judges,
-            (SELECT COUNT(*)::int FROM assignments) AS assignments,
+            (SELECT COUNT(*)::int FROM assignments a
+             WHERE EXISTS (SELECT 1 FROM teams t WHERE t.id = a.team_id)) AS assignments,
             (SELECT COUNT(*)::int FROM scores WHERE is_submitted) AS submissions
         `);
         return json(200, r.rows[0]);
@@ -460,14 +476,20 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         const teamId = parts[2];
         const del = await pool.query("DELETE FROM teams WHERE id = $1 RETURNING id", [teamId]);
         if (!del.rows[0]) return json(404, { error: "Team not found" });
+        await purgeOrphanAssignmentData(pool);
         return json(200, { ok: true });
       }
 
       if (parts[1] === "judges" && method === "GET") {
+        await purgeOrphanAssignmentData(pool);
         const r = await pool.query(`
           SELECT j.id, j.username, j.display_name, j.title, j.is_active,
-            (SELECT COUNT(*)::int FROM assignments a WHERE a.judge_id = j.id) AS assigned,
-            (SELECT COUNT(*)::int FROM scores s WHERE s.judge_id = j.id AND s.is_submitted) AS completed
+            (SELECT COUNT(*)::int FROM assignments a
+             INNER JOIN teams t ON t.id = a.team_id
+             WHERE a.judge_id = j.id) AS assigned,
+            (SELECT COUNT(*)::int FROM scores s
+             INNER JOIN teams t ON t.id = s.team_id
+             WHERE s.judge_id = j.id AND s.is_submitted) AS completed
           FROM judges j
           ORDER BY j.display_name
         `);
@@ -475,6 +497,7 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       }
 
       if (parts[1] === "assignments" && method === "GET") {
+        await purgeOrphanAssignmentData(pool);
         const r = await pool.query(`
           SELECT a.id, a.judge_id, a.team_id,
             j.display_name AS judge_name, t.name AS team_name,
@@ -647,9 +670,15 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         const { per_judge } = JSON.parse(event.body || "{}");
         const n = Math.max(1, Math.floor(Number(per_judge) || 20));
 
+        await purgeOrphanAssignmentData(pool);
         const [judgesRes, countsRes, unassignedRes] = await Promise.all([
           pool.query("SELECT id FROM judges WHERE is_active ORDER BY display_name"),
-          pool.query("SELECT judge_id, COUNT(*)::int AS c FROM assignments GROUP BY judge_id"),
+          pool.query(
+            `SELECT a.judge_id, COUNT(*)::int AS c
+             FROM assignments a
+             INNER JOIN teams t ON t.id = a.team_id
+             GROUP BY a.judge_id`
+          ),
           pool.query(
             `SELECT t.id FROM teams t
              WHERE NOT EXISTS (SELECT 1 FROM assignments a WHERE a.team_id = t.id)
