@@ -46,6 +46,21 @@ type Assignment = {
   is_submitted: boolean;
 };
 
+type DuplicateAssignmentRow = {
+  assignment_id: string;
+  team_id: string;
+  team_name: string;
+  judge_name: string;
+  assigned_at: string;
+  keeps_assignment: boolean;
+};
+
+type DuplicateReport = {
+  teams_affected: number;
+  extra_assignments: number;
+  rows: DuplicateAssignmentRow[];
+};
+
 export default function AdminPanel() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
@@ -68,6 +83,7 @@ export default function AdminPanel() {
   const [selTeam, setSelTeam] = useState("");
   const [randCount, setRandCount] = useState(20);
   const [perJudge, setPerJudge] = useState(20);
+  const [duplicateReport, setDuplicateReport] = useState<DuplicateReport | null>(null);
 
   function refresh() {
     return Promise.all([
@@ -277,6 +293,27 @@ export default function AdminPanel() {
     }
   }
 
+  async function findDuplicateAssignments() {
+    setErr("");
+    setMsg("");
+    try {
+      await run("Scanning for duplicates…", async () => {
+        const r = await api<DuplicateReport>("/admin/assignments/duplicates");
+        setDuplicateReport(r);
+        if (!r.rows.length) {
+          setMsg("No duplicate assignments found — each team has at most one judge.");
+        } else {
+          setMsg(
+            `Found ${r.extra_assignments} extra assignment(s) on ${r.teams_affected} team(s). Review below, then fix if needed.`
+          );
+        }
+      });
+    } catch (e) {
+      setDuplicateReport(null);
+      setErr(e instanceof Error ? e.message : "Scan failed");
+    }
+  }
+
   async function dedupeAssignments() {
     if (
       !confirm(
@@ -294,6 +331,7 @@ export default function AdminPanel() {
           teams_affected: number;
           teams: { team_name: string; judges: string }[];
         }>("/admin/assignments/dedupe", { method: "POST" });
+        setDuplicateReport(null);
         if (!r.removed) {
           setMsg("No duplicate team assignments found.");
         } else {
@@ -505,17 +543,11 @@ export default function AdminPanel() {
                 {stats.teams_multi_judge > 0 && (
                   <> — {stats.teams_multi_judge} team(s) have more than one judge</>
                 )}
-                . Each team should have exactly one judge; extras usually come from &quot;Assign all
-                teams&quot; or random assign after auto-distribute.
+                . Each team should have exactly one judge.
               </p>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                onClick={dedupeAssignments}
-                disabled={isPending}
-              >
-                Fix duplicate assignments
-              </button>
+              <p className="text-muted" style={{ margin: "0 0 0.75rem", fontSize: "0.85rem" }}>
+                Use Find duplicates below to list them before fixing.
+              </p>
             </div>
           )}
         </>
@@ -666,6 +698,65 @@ export default function AdminPanel() {
           Each team can only have one judge. Auto-distribute assigns unassigned teams round-robin (up
           to the per-judge limit). Random assign only picks teams with no judge yet.
         </p>
+        <hr style={{ margin: "1.25rem 0", border: "none", borderTop: "1px solid var(--border)" }} />
+        <h3 style={{ margin: "0 0 0.5rem", fontSize: "1rem" }}>Duplicate assignments</h3>
+        <p className="text-muted" style={{ fontSize: "0.85rem", margin: "0 0 0.75rem" }}>
+          Find teams with more than one judge before removing extras. Fix keeps the earliest
+          assignment per team.
+        </p>
+        <div className="team-card-actions">
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={findDuplicateAssignments}
+            disabled={isPending}
+          >
+            Find duplicate assignments
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={dedupeAssignments}
+            disabled={isPending || !duplicateReport?.rows.length}
+            title={
+              duplicateReport?.rows.length
+                ? undefined
+                : "Run Find duplicate assignments first"
+            }
+          >
+            Fix duplicate assignments
+          </button>
+        </div>
+        {duplicateReport && duplicateReport.rows.length > 0 && (
+          <div className="table-wrap" style={{ marginTop: "1rem" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Team</th>
+                  <th>Judge</th>
+                  <th>Assigned</th>
+                  <th>On fix</th>
+                </tr>
+              </thead>
+              <tbody>
+                {duplicateReport.rows.map((row) => (
+                  <tr key={row.assignment_id}>
+                    <td>{row.team_name}</td>
+                    <td>{row.judge_name}</td>
+                    <td>{new Date(row.assigned_at).toLocaleString()}</td>
+                    <td>
+                      {row.keeps_assignment ? (
+                        <span className="badge badge-done">Keep</span>
+                      ) : (
+                        <span className="badge badge-pending">Remove</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="card">

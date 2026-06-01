@@ -147,6 +147,37 @@ function parseCsvTeams(csv: string): { name: string; link: string; late_penalty:
 const TEAM_IMPORT_BATCH = 100;
 const ASSIGNMENT_BATCH = 100;
 
+type DuplicateAssignmentRow = {
+  assignment_id: string;
+  team_id: string;
+  team_name: string;
+  judge_name: string;
+  assigned_at: string;
+  keeps_assignment: boolean;
+};
+
+async function fetchDuplicateAssignments(
+  pool: ReturnType<typeof getPool>
+): Promise<DuplicateAssignmentRow[]> {
+  const r = await pool.query(`
+    SELECT a.id AS assignment_id, a.team_id, t.name AS team_name,
+      j.display_name AS judge_name, a.assigned_at,
+      (ROW_NUMBER() OVER (
+        PARTITION BY a.team_id ORDER BY a.assigned_at ASC, a.id
+      ) = 1) AS keeps_assignment
+    FROM assignments a
+    INNER JOIN teams t ON t.id = a.team_id
+    INNER JOIN judges j ON j.id = a.judge_id
+    WHERE a.team_id IN (
+      SELECT a2.team_id FROM assignments a2
+      INNER JOIN teams t2 ON t2.id = a2.team_id
+      GROUP BY a2.team_id HAVING COUNT(*) > 1
+    )
+    ORDER BY t.name, a.assigned_at
+  `);
+  return r.rows as DuplicateAssignmentRow[];
+}
+
 /** If set, this team already has a judge (one judge per team). */
 async function teamAssignedJudgeId(
   pool: ReturnType<typeof getPool>,
@@ -518,7 +549,19 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
         return json(200, { judges: r.rows });
       }
 
-      if (parts[1] === "assignments" && method === "GET") {
+      if (parts[1] === "assignments" && parts[2] === "duplicates" && method === "GET") {
+        await purgeOrphanAssignmentData(pool);
+        const rows = await fetchDuplicateAssignments(pool);
+        const teamsAffected = new Set(rows.map((r) => r.team_id)).size;
+        const extraAssignments = rows.filter((r) => !r.keeps_assignment).length;
+        return json(200, {
+          teams_affected: teamsAffected,
+          extra_assignments: extraAssignments,
+          rows,
+        });
+      }
+
+      if (parts[1] === "assignments" && method === "GET" && !parts[2]) {
         await purgeOrphanAssignmentData(pool);
         const r = await pool.query(`
           SELECT a.id, a.judge_id, a.team_id,
@@ -702,15 +745,8 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
 
       if (parts[1] === "assignments" && parts[2] === "dedupe" && method === "POST") {
         await purgeOrphanAssignmentData(pool);
-        const dupes = await pool.query(
-          `SELECT a.team_id, t.name AS team_name,
-            STRING_AGG(j.display_name, ', ' ORDER BY a.assigned_at) AS judges
-           FROM assignments a
-           JOIN teams t ON t.id = a.team_id
-           JOIN judges j ON j.id = a.judge_id
-           GROUP BY a.team_id, t.name
-           HAVING COUNT(*) > 1`
-        );
+        const rowsBefore = await fetchDuplicateAssignments(pool);
+        const teamsAffected = new Set(rowsBefore.map((r) => r.team_id)).size;
         const removed = await pool.query(`
           WITH ranked AS (
             SELECT a.id, a.judge_id, a.team_id,
@@ -734,11 +770,19 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
           USING ranked r
           WHERE a.id = r.id AND r.rn > 1
         `);
+        const teams = [...new Set(rowsBefore.map((r) => r.team_id))].map((teamId) => {
+          const teamRows = rowsBefore.filter((r) => r.team_id === teamId);
+          return {
+            team_id: teamId,
+            team_name: teamRows[0]?.team_name ?? "",
+            judges: teamRows.map((r) => r.judge_name).join(", "),
+          };
+        });
         return json(200, {
           removed: del.rowCount ?? 0,
           scores_cleared: removed.rowCount ?? 0,
-          teams_affected: dupes.rows.length,
-          teams: dupes.rows,
+          teams_affected: teamsAffected,
+          teams,
         });
       }
 
