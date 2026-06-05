@@ -304,8 +304,17 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       const auth = await requireAuth(event);
       if (!auth.ok) return auth.response;
 
+      const isAdmin = auth.payload.role === "admin";
+      const judgeNamesSelect = isAdmin
+        ? `(SELECT STRING_AGG(j.display_name, ', ' ORDER BY j.display_name)
+            FROM assignments a
+            JOIN judges j ON j.id = a.judge_id
+            WHERE a.team_id = t.id) AS judge_names,`
+        : "";
+
       const r = await pool.query(`
         SELECT t.id, t.name, t.pdf_drive_link, t.late_penalty,
+          ${judgeNamesSelect}
           COUNT(DISTINCT s.judge_id) FILTER (WHERE s.is_submitted) AS judges_scored,
           ROUND(AVG(${SCORE_SUM_SQL}) FILTER (WHERE s.is_submitted), 2) AS avg_raw,
           ROUND(AVG(GREATEST(0, ${SCORE_SUM_SQL} - COALESCE(t.late_penalty, 0)))

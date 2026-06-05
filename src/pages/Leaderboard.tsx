@@ -14,6 +14,7 @@ type Row = {
   judges_scored: number;
   avg_raw: string | null;
   avg_total: string | null;
+  judge_names?: string | null;
 };
 
 export default function Leaderboard() {
@@ -69,6 +70,9 @@ export default function Leaderboard() {
                     {t.name}
                     <LatePenaltyBadge penalty={t.late_penalty} style={{ marginLeft: "0.35rem" }} />
                   </div>
+                  {session.role === "admin" && t.judge_names && (
+                    <div className="lb-meta">{t.judge_names}</div>
+                  )}
                   <div className="lb-meta">
                     {Number(t.judges_scored) > 0
                       ? `${t.judges_scored} judge${Number(t.judges_scored) === 1 ? "" : "s"} scored`
