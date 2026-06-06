@@ -18,7 +18,6 @@ type Team = {
   raw_total: number;
   current_total: number;
   team_feedback?: string | null;
-  [key: string]: string | number | boolean | null | undefined;
 };
 
 type Dashboard = {
@@ -161,7 +160,7 @@ export default function JudgeDashboard() {
                   )}
                 </div>
                 {(t.is_submitted || t.has_draft) && (
-                  <TeamMarkSummary team={t} />
+                  <TeamMarkSummary teamFeedback={t.team_feedback} />
                 )}
                 <div className="team-card-actions">
                   <DriveLink href={t.pdf_drive_link} label="View slides" className="btn btn-outline btn-sm" />

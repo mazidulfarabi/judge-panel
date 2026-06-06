@@ -518,51 +518,6 @@ select {
 }
 
 .team-mark-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding-top: 0.35rem;
-  border-top: 1px solid var(--border);
-}
-
-.team-mark-criteria {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.team-mark-row {
-  padding: 0.5rem 0.65rem;
-  background: var(--surface);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-}
-
-.team-mark-row-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.5rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-
-.team-mark-score {
-  color: var(--accent);
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.team-mark-fb {
-  margin: 0.35rem 0 0;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  color: var(--text);
-  font-weight: 400;
-  white-space: pre-wrap;
-}
-
-.team-mark-overall {
   padding: 0.65rem 0.75rem;
   background: var(--accent-light);
   border-radius: var(--radius-sm);
@@ -576,6 +531,15 @@ select {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   margin-bottom: 0.35rem;
+}
+
+.team-mark-fb {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text);
+  font-weight: 400;
+  white-space: pre-wrap;
 }
 
 /* Leaderboard cards */
