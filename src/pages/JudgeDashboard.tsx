@@ -5,6 +5,7 @@ import AppShell from "../components/AppShell";
 import DriveLink from "../components/DriveLink";
 import LatePenaltyBadge from "../components/LatePenaltyBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
+import TeamMarkSummary from "../components/TeamMarkSummary";
 import { CRITERIA, DEADLINE } from "../criteria";
 
 type Team = {
@@ -16,6 +17,8 @@ type Team = {
   has_draft: boolean;
   raw_total: number;
   current_total: number;
+  team_feedback?: string | null;
+  [key: string]: string | number | boolean | null | undefined;
 };
 
 type Dashboard = {
@@ -149,12 +152,17 @@ export default function JudgeDashboard() {
                         <span> (raw {t.raw_total}, −{t.late_penalty} late)</span>
                       </>
                     ) : (
-                      <>Your score: {t.current_total}/100</>
+                      <>
+                        Your score: <strong>{t.current_total}</strong>/100
+                      </>
                     )
                   ) : (
                     "Not scored yet"
                   )}
                 </div>
+                {(t.is_submitted || t.has_draft) && (
+                  <TeamMarkSummary team={t} />
+                )}
                 <div className="team-card-actions">
                   <DriveLink href={t.pdf_drive_link} label="View slides" className="btn btn-outline btn-sm" />
                   <Link className="btn btn-primary btn-sm" to={`/judge/team/${t.id}`}>

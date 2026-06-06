@@ -416,12 +416,15 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       }
 
       if (parts[1] === "teams" && method === "GET") {
+        const scoreCols = SCORE_COLUMNS.map((c) => `s.${c}`).join(", ");
+        const feedbackCols = FEEDBACK_COLUMNS.map((c) => `s.${c}`).join(", ");
         const r = await pool.query(
           `SELECT t.id, t.name, t.pdf_drive_link, t.late_penalty,
             COALESCE(s.is_submitted, false) AS is_submitted,
             CASE WHEN s.id IS NOT NULL THEN true ELSE false END AS has_draft,
             ${SCORE_SUM_SQL} AS raw_total,
-            GREATEST(0, ${SCORE_SUM_SQL} - COALESCE(t.late_penalty, 0)) AS current_total
+            GREATEST(0, ${SCORE_SUM_SQL} - COALESCE(t.late_penalty, 0)) AS current_total,
+            s.team_feedback, ${scoreCols}, ${feedbackCols}
            FROM assignments a
            JOIN teams t ON t.id = a.team_id
            LEFT JOIN scores s ON s.judge_id = a.judge_id AND s.team_id = t.id
