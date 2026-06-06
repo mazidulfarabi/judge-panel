@@ -15,7 +15,7 @@ import {
   SCORE_SUM_SQL,
   validateScores,
 } from "./utils/criteria";
-import { buildAllFeedbackPdf, teamFeedbackFromRows } from "./utils/feedback-pdf";
+import { buildAllFeedbackPdf, buildFeedbackExportData } from "./utils/feedback-pdf";
 import { ensureSchema, getDbStatus } from "./utils/migrate";
 import {
   driveEmbedUrl,
@@ -911,25 +911,23 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
       }
 
       if (parts[1] === "export" && parts[2] === "feedback" && method === "GET") {
+        const scoreCols = SCORE_COLUMNS.map((c) => `s.${c}`).join(", ");
+        const feedbackCols = FEEDBACK_COLUMNS.map((c) => `s.${c}`).join(", ");
         const scoresRes = await pool.query(`
-          SELECT t.name AS team_name, j.display_name AS judge_name, s.team_feedback,
-            ${FEEDBACK_COLUMNS.map((c) => `s.${c}`).join(", ")}
+          SELECT t.id AS team_id, t.name AS team_name, t.late_penalty,
+            j.display_name AS judge_name, s.team_feedback,
+            ${scoreCols}, ${feedbackCols}
           FROM teams t
           INNER JOIN scores s ON s.team_id = t.id AND s.is_submitted
           INNER JOIN judges j ON j.id = s.judge_id
           ORDER BY t.name, j.display_name
         `);
 
-        const teams = teamFeedbackFromRows(scoresRes.rows);
-        const hasContent = teams.some((t) =>
-          t.judges.some(
-            (j) => j.teamFeedback || j.criterionFeedback.length > 0
-          )
-        );
-        if (!hasContent) {
-          return json(400, { error: "No submitted feedback to export yet." });
+        if (!scoresRes.rows.length) {
+          return json(400, { error: "No submitted marks to export yet." });
         }
 
+        const teams = buildFeedbackExportData(scoresRes.rows);
         const pdf = await buildAllFeedbackPdf(teams);
         const data = Buffer.from(pdf).toString("base64");
         return json(200, { filename: "all-team-feedback.pdf", data });

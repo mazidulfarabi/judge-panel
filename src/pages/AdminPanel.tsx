@@ -766,7 +766,9 @@ export default function AdminPanel() {
       <div className="card">
         <h2>Export feedback</h2>
         <p className="text-muted" style={{ fontSize: "0.9rem", marginTop: 0 }}>
-          Download one PDF with all submitted team and criterion feedback (text only, grouped by team).
+          Download one PDF with team ranks, total marks, per-criteria scores and ranks, and all judge
+          feedback. Low-quality feedback (empty, very short, or vague superlatives) is highlighted in
+          red.
         </p>
         <button
           type="button"
