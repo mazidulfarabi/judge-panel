@@ -25,21 +25,6 @@ export async function api<T>(
   return res as unknown as T;
 }
 
-export async function downloadZip(path: string, filename: string) {
-  const token = getToken();
-  const res = await fetch(`${API}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error("Download failed");
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 export type LoginResult = {
   token: string;
   role: "admin" | "judge";

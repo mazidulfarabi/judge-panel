@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, downloadZip } from "../api";
+import { api } from "../api";
 import AppShell from "../components/AppShell";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { usePendingAction } from "../hooks/usePendingAction";
@@ -366,19 +366,6 @@ export default function AdminPanel() {
       });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Delete failed");
-    }
-  }
-
-  async function exportZip() {
-    setErr("");
-    setMsg("");
-    try {
-      await run("Preparing scorecards…", async () => {
-        await downloadZip("/admin/export/scorecards", "scorecards.zip");
-        setMsg("Scorecards ZIP downloaded.");
-      });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Export failed");
     }
   }
 
@@ -757,14 +744,6 @@ export default function AdminPanel() {
             </table>
           </div>
         )}
-      </div>
-
-      <div className="card">
-        <h2>Export scorecards</h2>
-        <p className="text-muted">ZIP of PDF scorecards per team (submitted marks only).</p>
-        <button className="btn btn-primary" onClick={exportZip} disabled={isPending}>
-          Download ZIP
-        </button>
       </div>
 
       <div className="card">

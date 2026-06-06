@@ -559,9 +559,16 @@ select {
   white-space: nowrap;
 }
 
-.lb-card .btn {
+.lb-actions {
   grid-column: 1 / -1;
-  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.lb-actions .btn {
+  flex: 1;
+  min-width: 140px;
 }
 
 /* Sticky mark actions */

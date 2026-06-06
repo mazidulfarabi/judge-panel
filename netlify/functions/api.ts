@@ -1,5 +1,4 @@
 import type { Handler, HandlerEvent, HandlerContext } from "@netlify/functions";
-import JSZip from "jszip";
 import { getPool } from "./utils/db";
 import {
   checkPassword,
@@ -16,7 +15,6 @@ import {
   SCORE_SUM_SQL,
   validateScores,
 } from "./utils/criteria";
-import { buildTeamScorecardPdf } from "./utils/pdf-export";
 import { ensureSchema, getDbStatus } from "./utils/migrate";
 import {
   driveEmbedUrl,
@@ -297,6 +295,64 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
     if (parts[0] === "settings" && method === "GET") {
       const r = await pool.query("SELECT case_link, instructions FROM app_settings WHERE id = 1");
       return json(200, r.rows[0] || {});
+    }
+
+    // GET /api/leaderboard/team/:id/scorecard
+    if (
+      parts[0] === "leaderboard" &&
+      parts[1] === "team" &&
+      parts[2] &&
+      parts[3] === "scorecard" &&
+      method === "GET"
+    ) {
+      const auth = await requireAuth(event);
+      if (!auth.ok) return auth.response;
+
+      const teamId = parts[2];
+      const teamRes = await pool.query(
+        "SELECT id, name, late_penalty FROM teams WHERE id = $1",
+        [teamId]
+      );
+      if (!teamRes.rows[0]) return json(404, { error: "Team not found" });
+
+      const scoresRes = await pool.query(
+        `SELECT j.display_name AS judge_name, s.*
+         FROM scores s
+         INNER JOIN judges j ON j.id = s.judge_id
+         WHERE s.team_id = $1 AND s.is_submitted
+         ORDER BY j.display_name`,
+        [teamId]
+      );
+      if (!scoresRes.rows.length) {
+        return json(400, { error: "No submitted marks for this team yet." });
+      }
+
+      const avgRes = await pool.query(
+        `SELECT ROUND(AVG(GREATEST(0, ${SCORE_SUM_SQL} - COALESCE(t.late_penalty, 0))), 2) AS avg_total
+         FROM teams t
+         INNER JOIN scores s ON s.team_id = t.id AND s.is_submitted
+         WHERE t.id = $1
+         GROUP BY t.id`,
+        [teamId]
+      );
+
+      const team = teamRes.rows[0];
+      const scoreKeys = [...SCORE_COLUMNS, ...FEEDBACK_COLUMNS, "team_feedback"];
+      const judges = scoresRes.rows.map((row) => {
+        const scores: Record<string, string | number> = {};
+        for (const k of scoreKeys) {
+          scores[k] = row[k] ?? (k.startsWith("feedback_") || k === "team_feedback" ? "" : 0);
+        }
+        return { judge_name: row.judge_name as string, scores };
+      });
+
+      return json(200, {
+        team_name: team.name,
+        late_penalty: Number(team.late_penalty) || 0,
+        avg_total: avgRes.rows[0]?.avg_total != null ? Number(avgRes.rows[0].avg_total) : null,
+        judges_scored: judges.length,
+        judges,
+      });
     }
 
     // GET /api/leaderboard (judges & admin only)
@@ -851,47 +907,6 @@ const handler: Handler = async (event: HandlerEvent, _ctx: HandlerContext) => {
           per_judge: n,
           teams_remaining: skipped,
         });
-      }
-
-      if (parts[1] === "export" && parts[2] === "scorecards" && method === "GET") {
-        const teams = await pool.query(
-          "SELECT id, name, late_penalty FROM teams ORDER BY name"
-        );
-        const zip = new JSZip();
-
-        for (const team of teams.rows) {
-          const scores = await pool.query(
-            `SELECT j.display_name AS judge_name, s.*
-             FROM scores s
-             JOIN judges j ON j.id = s.judge_id
-             WHERE s.team_id = $1 AND s.is_submitted
-             ORDER BY j.display_name`,
-            [team.id]
-          );
-          if (!scores.rows.length) continue;
-          const pdf = await buildTeamScorecardPdf(
-            team.name,
-            Number(team.late_penalty) || 0,
-            scores.rows.map((r) => ({
-              judgeName: r.judge_name,
-              row: r,
-            }))
-          );
-          const safe = team.name.replace(/[^\w\s-]/g, "").slice(0, 80);
-          zip.file(`${safe}-scorecard.pdf`, pdf);
-        }
-
-        const blob = await zip.generateAsync({ type: "base64" });
-        return {
-          statusCode: 200,
-          headers: {
-            ...headers,
-            "Content-Type": "application/zip",
-            "Content-Disposition": 'attachment; filename="scorecards.zip"',
-          },
-          body: blob,
-          isBase64Encoded: true,
-        };
       }
 
       if (parts[1] === "settings" && method === "PUT") {

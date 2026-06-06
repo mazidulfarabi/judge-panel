@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { api, getSession } from "../api";
 import AppShell from "../components/AppShell";
 import DriveLink from "../components/DriveLink";
 import LatePenaltyBadge from "../components/LatePenaltyBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
+import { downloadScorecardPng, type ScorecardData } from "../utils/scorecardPng";
 
 type Row = {
   id: string;
@@ -22,6 +22,7 @@ export default function Leaderboard() {
   const [teams, setTeams] = useState<Row[]>([]);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const home = session.role === "admin" ? "/admin" : "/judge";
 
   useEffect(() => {
@@ -43,6 +44,19 @@ export default function Leaderboard() {
       return { ...t, avg, avgRaw, rank: avg != null ? rank : null };
     });
   }, [teams]);
+
+  async function downloadMarksheet(teamId: string) {
+    setErr("");
+    setDownloadingId(teamId);
+    try {
+      const data = await api<ScorecardData>(`/leaderboard/team/${teamId}/scorecard`);
+      await downloadScorecardPng(data);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   return (
     <AppShell
@@ -95,11 +109,23 @@ export default function Leaderboard() {
                     <span className="text-muted">—</span>
                   )}
                 </div>
-                <DriveLink
-                  href={t.pdf_drive_link}
-                  label="Open slides"
-                  className="btn btn-outline btn-sm"
-                />
+                <div className="lb-actions">
+                  <DriveLink
+                    href={t.pdf_drive_link}
+                    label="Open slides"
+                    className="btn btn-outline btn-sm"
+                  />
+                  {Number(t.judges_scored) > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={downloadingId === t.id}
+                      onClick={() => downloadMarksheet(t.id)}
+                    >
+                      {downloadingId === t.id ? "Preparing…" : "Download marksheet"}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
