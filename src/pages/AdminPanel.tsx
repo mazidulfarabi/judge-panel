@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { api, downloadBase64File } from "../api";
 import AppShell from "../components/AppShell";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { usePendingAction } from "../hooks/usePendingAction";
@@ -366,6 +366,23 @@ export default function AdminPanel() {
       });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Delete failed");
+    }
+  }
+
+  async function exportAllFeedback() {
+    setErr("");
+    setMsg("");
+    try {
+      await run("Preparing feedback PDF…", async () => {
+        await downloadBase64File(
+          "/admin/export/feedback",
+          "all-team-feedback.pdf",
+          "application/pdf"
+        );
+        setMsg("Feedback PDF downloaded.");
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Export failed");
     }
   }
 
@@ -744,6 +761,21 @@ export default function AdminPanel() {
             </table>
           </div>
         )}
+      </div>
+
+      <div className="card">
+        <h2>Export feedback</h2>
+        <p className="text-muted" style={{ fontSize: "0.9rem", marginTop: 0 }}>
+          Download one PDF with all submitted team and criterion feedback (text only, grouped by team).
+        </p>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={exportAllFeedback}
+          disabled={isPending}
+        >
+          Download all feedback (PDF)
+        </button>
       </div>
 
       <div className="card">

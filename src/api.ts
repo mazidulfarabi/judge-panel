@@ -25,6 +25,37 @@ export async function api<T>(
   return res as unknown as T;
 }
 
+export async function downloadBase64File(
+  path: string,
+  fallbackFilename: string,
+  mime: string
+) {
+  const token = getToken();
+  const res = await fetch(`${API}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Download failed" }));
+    throw new Error(err.error || "Download failed");
+  }
+  const payload = (await res.json()) as {
+    data?: string;
+    filename?: string;
+    error?: string;
+  };
+  if (payload.error) throw new Error(payload.error);
+  if (!payload.data) throw new Error("Invalid export response");
+
+  const binary = Uint8Array.from(atob(payload.data), (c) => c.charCodeAt(0));
+  const blob = new Blob([binary], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = payload.filename || fallbackFilename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export type LoginResult = {
   token: string;
   role: "admin" | "judge";
